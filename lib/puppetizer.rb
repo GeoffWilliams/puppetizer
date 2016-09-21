@@ -107,12 +107,20 @@ class Puppetizer < ::Escort::ActionCommand::Base
 
     # run puppet to finalise configuration
     ssh(host, "#{@@puppet_path}/puppet agent -t")
+
+    if deploy_code
+      setup_code_manager(host)
+    end
   end
 
   def defrag_line(d)
     # read the input line-wise (it *will* arrive fragmented!)
     (@buf ||= '') << d
     while line = @buf.slice!(/(.*)\r?\n/)
+      # how to handle sudo http://stackoverflow.com/a/4235463
+      #if data =~ /^\[sudo\] password for user:/
+      #  channel.send_data 'your_sudo_password'
+      #else
       Escort::Logger.output.puts line.strip #=> "hello stderr"
     end
   end
@@ -253,10 +261,10 @@ class Puppetizer < ::Escort::ActionCommand::Base
     end
   end
 
-  def setup_code_manager()
+  def setup_code_manager(host)
     Escort::Logger.output.puts "Setting up Code Manager on #{host}"
     
-    ssh( host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
+    ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
 
   end
 
