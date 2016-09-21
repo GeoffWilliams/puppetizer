@@ -1,0 +1,125 @@
+#!/usr/bin/env ruby
+
+require 'puppetizer'
+require 'escort'
+
+Escort::App.create do |app|
+  app.version "0.0.1"
+  app.summary "puppetizer"
+  app.description "Automatically install puppet masters and agents :D"
+
+  #app.requires_arguments
+
+  app.options do |opts|
+    opts.opt :ssh_username, 
+      'Username to use when logging in over SSH', 
+      :long => '--ssh-username', 
+      :type => :string, 
+      :default => 'root'
+#
+#    opts.opt :console_admin_password,
+#      'Initial console admin password',
+#      :long => '--console-admin-password',
+#      :default => 'changeme'
+  #
+  #  opts.opt :puppetmasters, 
+  #    "run puppetizer on all known master nodes", 
+  #    :long => '--puppetmasters', 
+  #    :type => :boolean, 
+  #    :default => false
+  end
+
+  app.command :all do |command|
+    command.summary "Install all known nodes"
+    command.description "Install Puppet Enterprise master and agents on all known nodes"
+    command.action do |options, arguments|
+      Puppetizer::Puppetizer.new(options, arguments).puppetize('puppetmasters')
+      Puppetizer::Puppetizer.new(options, arguments).puppetize('agents')
+    end
+    command.options do |opts|
+      opts.opt(:puppetmaster,
+        'Address of the puppetmaster',
+        :long => '--puppetmaster',
+        :type => :string,
+        :default => 'puppet.demo.internal'
+      )
+    
+      opts.opt(:console_admin_password,
+        'Initial console admin password',
+        :long => '--console-admin-password',
+        :default => 'changeme'
+      )
+
+      opts.opt(:challenge_password,
+        'transient challenge password for CSRs',
+        :long     => '--challenge-password',
+        :type     => :string,
+        :default  => 'topsecret'
+      )
+    end
+  end
+
+  app.command :puppetmasters do |command|
+    command.summary "Install masters"
+    command.description "Install Puppet Enterprise on all known puppetmaster nodes"
+    command.action do |options, arguments|
+      Puppetizer::Puppetizer.new(options, arguments).puppetize('puppetmasters')
+    end
+    command.options do |opts|
+      opts.opt(:console_admin_password,
+        'Initial console admin password',
+        :long => '--console-admin-password',
+        :default => 'changeme'
+      )
+
+      opts.opt(:control_repo,
+        'Git url to checkout a control repo from',
+        :long => '--control-repo',
+        :type => :string,
+        :default => 'https://github.com/GeoffWilliams/r10k-control/'
+      )
+    end
+
+    command.command :setup_r10k do |command|
+      command.summary "Setup R10K"
+      command.description "Setup R10K by creating the r10k.yaml file"
+      command.action do |options, arguments|
+        Puppetizer::Puppetizer.new(options, arguments).action_setup_r10k()
+      end
+    end
+
+  end
+
+  app.command :agents do |command|
+    command.summary "Puppetize agents"
+    command.description "Puppetize all known agent nodes with the frictionless installer"
+    command.action do |options, arguments|
+      Puppetizer::puppetizer.new(options, arguments).puppetize('agents')
+    end
+
+    command.options do |opts|
+
+      opts.opt(:puppetmaster,
+        'Address of the puppetmaster',
+        :long     => '--puppetmaster',
+        :type     => :string,
+        :default  => 'puppet.demo.internal'
+      )
+
+      opts.opt(:challenge_password,
+        'transient challenge password for CSRs',
+        :long     => '--challenge-password',
+        :type     => :string,
+        :default  => 'topsecret'
+      )
+    end
+  end
+
+  app.command :status do |command|
+    command.summary "Puppet agent status"
+    command.description "Get the status of the puppet agent daemon on all known nodes"
+    command.action do |options, arguments|
+      Puppetizer::Puppetizer.new(options, arguments).status()
+    end
+  end
+end
