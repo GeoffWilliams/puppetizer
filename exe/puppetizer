@@ -94,7 +94,7 @@ Escort::App.create do |app|
     command.summary "Puppetize agents"
     command.description "Puppetize all known agent nodes with the frictionless installer"
     command.action do |options, arguments|
-      Puppetizer::puppetizer.new(options, arguments).puppetize('agents')
+      Puppetizer::Puppetizer.new(options, arguments).puppetize('agents')
     end
 
     command.options do |opts|
