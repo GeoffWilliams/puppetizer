@@ -183,10 +183,10 @@ module Puppetizer
           else
             error_message = e.message
           end
-          Escort::Logger.error.error error_message
+          raise PuppetizerError error_message
         end
       else
-        Escort::Logger.error.error "host #{host} not responding to SSH"
+        raise PuppetizerError, "host #{host} not responding to SSH"
       end
     end
 
@@ -229,10 +229,10 @@ module Puppetizer
           else
             error_message = e.message
           end
-          Escort::Logger.error.error "NNN" + error_message
+          raise PuppetizerError, error_message
         end
       else
-        Escort::Logger.error.error "host #{host} not responding to SSH"
+        raise PuppetizerError, "host #{host} not responding to SSH"
       end
     end
 
@@ -246,12 +246,20 @@ module Puppetizer
         when "puppetmasters"
           @myini[section_key].each do |r|
             hostname, csr_attributes, data = InventoryParser::parse(r)
-            install_pe(hostname, csr_attributes, data)
+            begin
+              install_pe(hostname, csr_attributes, data)
+            rescue PuppetizerError => e
+              Escort::Logger.error.error e.message
+            end
           end
         when "agents"
           @myini[section_key].each do |r|
             hostname, csr_attributes, data = InventoryParser::parse(r)
-            install_puppet(hostname, csr_attributes, data)
+            begin
+              install_puppet(hostname, csr_attributes, data)
+            rescue PuppetizerError => e
+              Escort::Logger.error.error e.message
+            end
           end
         else
           Escort::Logger.error.error "Unknown section: " + section
@@ -363,4 +371,9 @@ module Puppetizer
     end
 
   end
+
+  # Make our own exception so that we know we threw it and can proceed
+  class PuppetizerError  < StandardError
+  end
+
 end
