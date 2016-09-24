@@ -39,7 +39,7 @@ module Puppetizer
           #"password"
         ],
         :operation_timeout  => 0,
-        :timeout            => 20*60,
+        :timeout            => 60*60, # nothing we do should take more then an hour, period
       }
 
       # if non-root, use sudo
@@ -117,7 +117,7 @@ module Puppetizer
       # SCP the installer
       tarball = find_pe_tarball
       if upload_needed(host, tarball, "/tmp/#{tarball}")
-        scp(host, tarball, "/tmp/")
+        scp(host, tarball, "/tmp/", "Upload PE Media")
       end
 
       setup_csr_attributes(host, csr_attributes, data)  
@@ -163,18 +163,28 @@ module Puppetizer
       return false
     end
 
-    def scp(host, local_file, remote_file)
+    def scp(host, local_file, remote_file, job_name='Upload data')
       if port_open?(host,22)
         begin
           # local variables are visible in instance-eval but instance ones are not...
           # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
           ssh_opts = @ssh_opts
-          progressbar = ProgressBar.create(:title => 'Upload media')
+          progressbar = ProgressBar.create(:title => job_name)
           Net::SSH::Simple.sync do
             scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
               #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
               percent_complete = (sent/total.to_f) * 100
               progressbar.progress=(percent_complete)
+
+              # for some reason, sent bytes is too high when we are sending to 
+              # AWS over a slow link.  I don't know if its because they bytes
+              # are in-flight or if its just because of bug in net-scp but 
+              # pulsing the progress bar to let user know that status is now 
+              # unknown/finishing
+              if sent==total
+                progressbar.total = nil
+                progressbar.increment
+              end
             end
           end
         rescue Net::SSH::Simple::Error => e
