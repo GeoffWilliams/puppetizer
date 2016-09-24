@@ -9,6 +9,7 @@ require 'net/ssh/simple'
 require 'escort'
 require 'erb'
 require 'tempfile'
+require 'ruby-progressbar'
 module Puppetizer
   class Puppetizer < ::Escort::ActionCommand::Base
 
@@ -29,9 +30,9 @@ module Puppetizer
     def initialize(options, arguments)
       @options = options
       @arguments = arguments
-    
+      @ssh_username = @options[:global][:options][:ssh_username]
       @ssh_opts = {
-        :user               => @options[:global][:options][:ssh_username], 
+        :user               => @ssh_username, 
         :auth_methods       => [
           "none", 
           "publickey", 
@@ -40,6 +41,13 @@ module Puppetizer
         :operation_timeout  => 0,
         :timeout            => 20*60,
       }
+
+      # if non-root, use sudo
+      if @ssh_username == "root"
+        @sudo = ''
+      else
+        @sudo = 'sudo'
+      end
 
       if File.exists?(@@inifile)
         @myini = IniStyle.new('inventory/hosts')
@@ -50,14 +58,16 @@ module Puppetizer
 
     def setup_csr_attributes(host, csr_attributes, data)
       challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
+      sudo = @sudo
       if csr_attributes or challenge_password
         Escort::Logger.output.puts "Setting up CSR attributes on #{host}"
         f = Tempfile.new("puppetizer")
         begin
           f << ERB.new(read_template(@@csr_attributes_template), nil, '-').result(binding)
           f.close
-          ssh(host, "mkdir -p #{@@puppet_confdir}")
-          scp(host, f.path, "#{@@puppet_confdir}/csr_attributes.yaml")
+          ssh(host, "#{sudo} mkdir -p #{@@puppet_confdir}")
+          scp(host, f.path, "/tmp/csr_attributes.yaml")
+          ssh(host, "#{sudo} mv /tmp//csr_attributes.yaml #{@@puppet_confdir}/csr_attributes.yaml")
         ensure
           f.close
           f.unlink
@@ -68,6 +78,7 @@ module Puppetizer
     def install_puppet(host, csr_attributes = false, data={})
       Escort::Logger.output.puts "Installing puppet agent on #{host}" 
       puppetmaster = @options[:global][:commands][command_name][:options][:puppetmaster]
+      sudo = @sudo
   #    challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
   #    csr_attributes |= challenge_password
       setup_csr_attributes(host, csr_attributes, data)    
@@ -83,6 +94,13 @@ module Puppetizer
       end
     end
 
+    def upload_needed(host, local_file, remote_file)
+      local_md5=%x{md5sum #{local_file}}.strip.split(/\s+/)[0]
+      remote_md5=ssh(host, "md5sum #{remote_file}").stdout.strip.split(/\s+/)[0]
+
+      return local_md5 != remote_md5
+    end
+
     def read_template(template)
       File.open(template, 'r') { |file| file.read }
     end
@@ -94,10 +112,13 @@ module Puppetizer
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
       deploy_code = data.has_key?('deploy_code')
       control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
-
+      sudo = @sudo
 
       # SCP the installer
-      scp(host, find_pe_tarball, "/tmp/")
+      tarball = find_pe_tarball
+      if upload_needed(host, tarball, "/tmp/#{tarball}")
+        scp(host, tarball, "/tmp/")
+      end
 
       setup_csr_attributes(host, csr_attributes, data)  
 
@@ -148,9 +169,12 @@ module Puppetizer
           # local variables are visible in instance-eval but instance ones are not...
           # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
           ssh_opts = @ssh_opts
+          progressbar = ProgressBar.create(:title => 'Upload media')
           Net::SSH::Simple.sync do
             scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
-              Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
+              #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
+              percent_complete = (sent/total.to_f) * 100
+              progressbar.progress=(percent_complete)
             end
           end
         rescue Net::SSH::Simple::Error => e
@@ -166,7 +190,7 @@ module Puppetizer
       end
     end
 
-    def ssh(host, cmd)
+    def ssh(host, cmd, no_capture=false)
       if port_open?(host,22)
         begin
           ssh_opts = @ssh_opts
@@ -177,7 +201,9 @@ module Puppetizer
                   #puts "CONNECTED"
                 when :stdout, :stderr
                   defrag_line(d)
-                  :no_append
+                  if no_capture
+                    :no_append
+                  end
                 # :exit_code is triggered when the remote process exits normally.
                 # it does *not* trigger when the remote process exits by signal!
                 when :exit_code
@@ -263,7 +289,7 @@ module Puppetizer
 
     def setup_code_manager(host)
       Escort::Logger.output.puts "Setting up Code Manager on #{host}"
-      
+      sudo = @sudo
       ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
 
     end
