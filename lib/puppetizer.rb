@@ -165,6 +165,7 @@ module Puppetizer
 
     def scp(host, local_file, remote_file, job_name='Upload data')
       if port_open?(host,22)
+        busy_spinner = BusySpinner.new
         begin
           # local variables are visible in instance-eval but instance ones are not...
           # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
@@ -173,8 +174,6 @@ module Puppetizer
           Net::SSH::Simple.sync do
             scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
               #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
-              percent_complete = (sent/total.to_f) * 100
-              progressbar.progress=(percent_complete)
 
               # for some reason, sent bytes is too high when we are sending to 
               # AWS over a slow link.  I don't know if its because they bytes
@@ -182,11 +181,19 @@ module Puppetizer
               # pulsing the progress bar to let user know that status is now 
               # unknown/finishing
               if sent==total
-                progressbar.total = nil
-                progressbar.increment
+                t = Thread.new { busy_spinner.run }
+                t.abort_on_exception = true
+              else
+                percent_complete = (sent/total.to_f) * 100
+                progressbar.progress=(percent_complete)
               end
             end
           end
+          # control returns here
+          if busy_spinner
+            busy_spinner.stop
+          end
+
         rescue Net::SSH::Simple::Error => e
           if e.message =~ /AuthenticationFailed/
             error_message = "Authentication failed for #{ssh_opts[:user]}@#{host}, key loaded?"
@@ -201,6 +208,7 @@ module Puppetizer
     end
 
     def ssh(host, cmd, no_capture=false)
+      sudo = @sudo
       if port_open?(host,22)
         begin
           ssh_opts = @ssh_opts
@@ -384,6 +392,24 @@ module Puppetizer
 
   # Make our own exception so that we know we threw it and can proceed
   class PuppetizerError  < StandardError
+  end
+
+  class BusySpinner
+
+    def stop
+      @running = false
+    end
+
+    def run
+      @running = true
+      progressbar = ProgressBar.create(:total=> nil, :title=>'finishing')
+
+      while @running
+        progressbar.increment
+        sleep(0.2)
+      end
+    end
+
   end
 
 end
