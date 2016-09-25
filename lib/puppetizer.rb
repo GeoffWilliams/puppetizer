@@ -31,22 +31,40 @@ module Puppetizer
       @options = options
       @arguments = arguments
       @ssh_username = @options[:global][:options][:ssh_username]
+      if ENV.has_key? 'PUPPETIZER_USER_PASSWORD'
+        @user_password = ENV['PUPPETIZER_USER_PASSWORD']
+      else
+        @user_password = false
+      end
+      auth_methods = [
+        "none",
+        "publickey"
+      ]
+      if @user_password
+        auth_methods.push("password")
+      end
+
       @ssh_opts = {
         :user               => @ssh_username, 
-        :auth_methods       => [
-          "none", 
-          "publickey", 
-          #"password"
-        ],
+        :auth_methods       => auth_methods,
         :operation_timeout  => 0,
         :timeout            => 60*60, # nothing we do should take more then an hour, period
       }
+
+      if @user_password
+        @ssh_opts[:password] = @user_password
+      end
 
       # if non-root, use sudo
       if @ssh_username == "root"
         @sudo = ''
       else
         @sudo = 'sudo'
+        if ENV.has_key? 'PUPPETIZER_USER_PASSWORD'
+          @user_password = ENV['PUPPETIZER_USER_PASSWORD']
+        else
+          @user_password = false
+        end
       end
 
       if File.exists?(@@inifile)
@@ -65,9 +83,11 @@ module Puppetizer
         begin
           f << ERB.new(read_template(@@csr_attributes_template), nil, '-').result(binding)
           f.close
-          ssh(host, "#{sudo} mkdir -p #{@@puppet_confdir}")
-          scp(host, f.path, "/tmp/csr_attributes.yaml")
-          ssh(host, "#{sudo} mv /tmp//csr_attributes.yaml #{@@puppet_confdir}/csr_attributes.yaml")
+          csr_tmp = "/tmp/csr_attributes.yaml"
+          scp(host, f.path, csr_tmp)
+          ssh(host, 
+            "#{sudo} mkdir -p #{@@puppet_confdir} && "\
+            "#{sudo} mv #{csr_tmp} #{@@puppet_confdir}/csr_attributes.yaml")
         ensure
           f.close
           f.unlink
@@ -127,21 +147,32 @@ module Puppetizer
       ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
 
       # run puppet to finalise configuration
-      ssh(host, "#{@@puppet_path}/puppet agent -t")
+      ssh(host, "#{sudo} #{@@puppet_path}/puppet agent -t")
 
       if deploy_code
         setup_code_manager(host)
       end
     end
 
-    def defrag_line(d)
+    def defrag_line(d, channel)
+      # The sudo prompt doesn't have a newline at the end so the main stream
+      # reading code never catches it, lets capture it here...
+      # based on: http://stackoverflow.com/a/4235463
+      if d =~ /^\[sudo\] password for #{@ssh_username}:/
+        if @user_password
+          # send password
+          channel.send_data @user_password
+
+          # don't forget to press enter :)
+          channel.send_data "\n"
+        else
+          raise PuppetizerError "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
+        end
+      end
+
       # read the input line-wise (it *will* arrive fragmented!)
       (@buf ||= '') << d
       while line = @buf.slice!(/(.*)\r?\n/)
-        # how to handle sudo http://stackoverflow.com/a/4235463
-        #if data =~ /^\[sudo\] password for user:/
-        #  channel.send_data 'your_sudo_password'
-        #else
         Escort::Logger.output.puts line.strip #=> "hello stderr"
       end
     end
@@ -198,7 +229,7 @@ module Puppetizer
           if e.message =~ /AuthenticationFailed/
             error_message = "Authentication failed for #{ssh_opts[:user]}@#{host}, key loaded?"
           else
-            error_message = e.message
+            error_message = 'no'#e.message
           end
           raise PuppetizerError error_message
         end
@@ -209,16 +240,17 @@ module Puppetizer
 
     def ssh(host, cmd, no_capture=false)
       sudo = @sudo
+      request_pty = ! @sudo.empty?
       if port_open?(host,22)
         begin
           ssh_opts = @ssh_opts
           r = Net::SSH::Simple.sync do
-            ssh(host, cmd, ssh_opts) do |e,c,d|
+            ssh(host, cmd, ssh_opts, request_pty) do |e,c,d|
               case e
                 when :start
                   #puts "CONNECTED"
                 when :stdout, :stderr
-                  defrag_line(d)
+                  defrag_line(d,c)
                   if no_capture
                     :no_append
                   end
