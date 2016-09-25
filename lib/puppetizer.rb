@@ -231,7 +231,7 @@ module Puppetizer
           else
             error_message = 'no'#e.message
           end
-          raise PuppetizerError error_message
+          raise PuppetizerError, error_message
         end
       else
         raise PuppetizerError, "host #{host} not responding to SSH"
