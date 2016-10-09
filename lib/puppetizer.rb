@@ -122,7 +122,15 @@ module Puppetizer
     end
 
     def read_template(template)
-      File.open(template, 'r') { |file| file.read }
+      # Override shipped templates with local ones if present
+      if File.exist?(template)
+        Escort::Logger.output.puts "Using local template #{template}"
+        template_file = template
+      else
+        template_file = File.join(
+          File.dirname(File.expand_path(__FILE__)), "../res/#{template}")
+      end
+      File.open(template_file, 'r') { |file| file.read }
     end
 
     def install_pe(host, csr_attributes, data)

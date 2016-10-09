@@ -1,0 +1,12 @@
+<% if challenge_password -%>
+custom_attributes:
+  challengePassword: '<%= challenge_password %>'
+<% end -%>
+extension_requests:
+<% InventoryParser::csr_attributes.each do | attrib |
+  if data.has_key?(attrib) -%>
+    <%= attrib %>: '<%= data[attrib] %>'
+<% 
+  end
+end
+-%> 
