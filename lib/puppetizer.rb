@@ -26,6 +26,9 @@ module Puppetizer
     @@puppet_confdir      = "#{@@puppet_etc}/puppet"
     @@puppet_r10k_yaml    = "#{@@puppet_etc}/r10k/r10k.yaml"
     @@inifile = 'inventory/hosts'
+
+    @@agent_local_path = 'agent_installers'
+    @@agent_upload_path  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
     
     def initialize(options, arguments)
       @options = options
@@ -133,6 +136,16 @@ module Puppetizer
       File.open(template_file, 'r') { |file| file.read }
     end
 
+    def upload_agent_installers(host)
+      if Dir.exists?(@@agent_local_path)
+        Dir.foreach(@@agent_local_path) { |f| 
+          if f != '.' and f != '..'
+            scp(host, f, "/tmp/", "Uploading " + basename(f))
+          end
+        }
+      end
+    end
+
     def install_pe(host, csr_attributes, data)
       Escort::Logger.output.puts "Installing Puppet Enterprise on #{host}"
 
@@ -150,9 +163,11 @@ module Puppetizer
 
       setup_csr_attributes(host, csr_attributes, data)  
 
-
       # run the PE installer
       ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
+
+      # SCP up the agents if present
+      upload_agent_installers(host)
 
       # run puppet to finalise configuration
       ssh(host, "#{sudo} #{@@puppet_path}/puppet agent -t")
