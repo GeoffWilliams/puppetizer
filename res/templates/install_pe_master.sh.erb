@@ -10,13 +10,13 @@ sed 's/"console_admin_password": ""/"console_admin_password": "<%= password %>"/
   sed -i '$i# deploy_code not set in inventory' pe.conf
 <% end %>
 cd puppet-enterprise-* && \
-<%= sudo %> ./puppet-enterprise-installer -c ../pe.conf && \
+<%= user_start %> ./puppet-enterprise-installer -c ../pe.conf <%= user_end %>
 
 # install gems for puppetclassify - must restart after this
-<%= sudo %> /opt/puppetlabs/puppet/bin/gem install puppetclassify
-<%= sudo %> /opt/puppetlabs/server/bin/puppetserver gem install puppetclassify
-<%= sudo %> systemctl restart pe-puppetserver
+<%= user_start %> /opt/puppetlabs/puppet/bin/gem install puppetclassify <%= user_end %>
+<%= user_start %> /opt/puppetlabs/server/bin/puppetserver gem install puppetclassify <%= user_end %>
+<%= user_start %> systemctl restart pe-puppetserver <%= user_end %>
 
 # system will not be setup until we run puppet
-<%= sudo %> /opt/puppetlabs/puppet/bin/puppet agent -t
+<%= user_start %> /opt/puppetlabs/puppet/bin/puppet agent -t <%= user_end %>
 echo "---[D.U.N]---"

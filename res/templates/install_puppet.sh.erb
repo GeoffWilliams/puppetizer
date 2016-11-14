@@ -1,1 +1,2 @@
-curl -k https://<%= puppetmaster %>:8140/packages/current/install.bash | <%= sudo %> bash
+curl -k https://<%= puppetmaster %>:8140/packages/current/install.bash > /tmp/install.bash && \
+<%= user_start %> bash < /tmp/install.bash <% user_end %>

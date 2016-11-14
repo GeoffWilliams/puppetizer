@@ -29,16 +29,23 @@ module Puppetizer
 
     @@agent_local_path = 'agent_installers'
     @@agent_upload_path  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
-    
+
     def initialize(options, arguments)
       @options = options
       @arguments = arguments
       @ssh_username = @options[:global][:options][:ssh_username]
+      @swap_user = @options[:global][:options][:swap_user]
       if ENV.has_key? 'PUPPETIZER_USER_PASSWORD'
         @user_password = ENV['PUPPETIZER_USER_PASSWORD']
       else
         @user_password = false
       end
+      if ENV.has_key? 'PUPPETIZER_ROOT_PASSWORD'
+        @root_password = ENV['PUPPETIZER_ROOT_PASSWORD']
+      else
+        @root_password = false
+      end
+
       auth_methods = [
         "none",
         "publickey"
@@ -48,7 +55,7 @@ module Puppetizer
       end
 
       @ssh_opts = {
-        :user               => @ssh_username, 
+        :user               => @ssh_username,
         :auth_methods       => auth_methods,
         :operation_timeout  => 0,
         :timeout            => 60*60, # nothing we do should take more then an hour, period
@@ -60,9 +67,19 @@ module Puppetizer
 
       # if non-root, use sudo
       if @ssh_username == "root"
-        @sudo = ''
+        @user_start = ''
+        @user_end = ''
       else
-        @sudo = 'sudo'
+        if @swap_user == 'sudo'
+          @user_start = 'sudo'
+          @user_end = ''
+        elsif @swap_user == 'su'
+          @user_start = 'su -c \''
+          @user_end = '\''
+        else
+          raise Escort::UserError.new("Unsupported swap user method: #{@swap_user}")
+        end
+
         if ENV.has_key? 'PUPPETIZER_USER_PASSWORD'
           @user_password = ENV['PUPPETIZER_USER_PASSWORD']
         else
@@ -79,7 +96,9 @@ module Puppetizer
 
     def setup_csr_attributes(host, csr_attributes, data)
       challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
-      sudo = @sudo
+      user_start = @user_start
+      user_end   = @user_end
+
       if csr_attributes or challenge_password
         Escort::Logger.output.puts "Setting up CSR attributes on #{host}"
         f = Tempfile.new("puppetizer")
@@ -88,9 +107,9 @@ module Puppetizer
           f.close
           csr_tmp = "/tmp/csr_attributes.yaml"
           scp(host, f.path, csr_tmp)
-          ssh(host, 
-            "#{sudo} mkdir -p #{@@puppet_confdir} && "\
-            "#{sudo} mv #{csr_tmp} #{@@puppet_confdir}/csr_attributes.yaml")
+          ssh(host,
+            "#{user_start} mkdir -p #{@@puppet_confdir} #{user_end} && "\
+            "#{user_start} mv #{csr_tmp} #{@@puppet_confdir}/csr_attributes.yaml #{user_end}")
         ensure
           f.close
           f.unlink
@@ -99,12 +118,13 @@ module Puppetizer
     end
 
     def install_puppet(host, csr_attributes = false, data={})
-      Escort::Logger.output.puts "Installing puppet agent on #{host}" 
+      Escort::Logger.output.puts "Installing puppet agent on #{host}"
       puppetmaster = @options[:global][:commands][command_name][:options][:puppetmaster]
-      sudo = @sudo
+      user_start = @user_start
+      user_end = @user_end
   #    challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
   #    csr_attributes |= challenge_password
-      setup_csr_attributes(host, csr_attributes, data)    
+      setup_csr_attributes(host, csr_attributes, data)
       ssh(host, ERB.new(read_template(@@install_puppet_template), nil, '-').result(binding))
     end
 
@@ -138,7 +158,7 @@ module Puppetizer
 
     def upload_agent_installers(host)
       if Dir.exists?(@@agent_local_path)
-        Dir.foreach(@@agent_local_path) { |f| 
+        Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
             scp(host, f, "/tmp/", "Uploading " + basename(f))
           end
@@ -153,7 +173,8 @@ module Puppetizer
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
       deploy_code = data.has_key?('deploy_code')
       control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
-      sudo = @sudo
+      user_start = @user_start
+      user_end = @user_end
 
       # SCP the installer
       tarball = find_pe_tarball
@@ -161,7 +182,7 @@ module Puppetizer
         scp(host, tarball, "/tmp/", "Upload PE Media")
       end
 
-      setup_csr_attributes(host, csr_attributes, data)  
+      setup_csr_attributes(host, csr_attributes, data)
 
       # run the PE installer
       ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
@@ -170,7 +191,7 @@ module Puppetizer
       upload_agent_installers(host)
 
       # run puppet to finalise configuration
-      ssh(host, "#{sudo} #{@@puppet_path}/puppet agent -t")
+      ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
 
       if deploy_code
         setup_code_manager(host)
@@ -181,15 +202,25 @@ module Puppetizer
       # The sudo prompt doesn't have a newline at the end so the main stream
       # reading code never catches it, lets capture it here...
       # based on: http://stackoverflow.com/a/4235463
-      if d =~ /^\[sudo\] password for #{@ssh_username}:/
-        if @user_password
-          # send password
-          channel.send_data @user_password
+      if d =~ /^\[sudo\] password for #{@ssh_username}:/ or d =~ /Password:/
+        if @swap_user == 'sudo'
+          if @user_password
+            # send password
+            channel.send_data @user_password
 
-          # don't forget to press enter :)
-          channel.send_data "\n"
-        else
-          raise PuppetizerError "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
+            # don't forget to press enter :)
+            channel.send_data "\n"
+          else
+            raise PuppetizerError "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
+          end
+        elsif @swap_user == 'su'
+          if @root_password
+            # send password
+            channel.send_data @root_password
+            channel.send_data "\n"
+          else
+            raise PuppetizerError "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
+          end
         end
       end
 
@@ -229,10 +260,10 @@ module Puppetizer
             scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
               #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
 
-              # for some reason, sent bytes is too high when we are sending to 
+              # for some reason, sent bytes is too high when we are sending to
               # AWS over a slow link.  I don't know if its because they bytes
-              # are in-flight or if its just because of bug in net-scp but 
-              # pulsing the progress bar to let user know that status is now 
+              # are in-flight or if its just because of bug in net-scp but
+              # pulsing the progress bar to let user know that status is now
               # unknown/finishing
               if sent==total
                 t = Thread.new { busy_spinner.run }
@@ -262,8 +293,8 @@ module Puppetizer
     end
 
     def ssh(host, cmd, no_capture=false)
-      sudo = @sudo
-      request_pty = ! @sudo.empty?
+      user_start = @user_start
+      request_pty = ! @user_start.empty?
       if port_open?(host,22)
         begin
           ssh_opts = @ssh_opts
@@ -281,14 +312,14 @@ module Puppetizer
                 # it does *not* trigger when the remote process exits by signal!
                 when :exit_code
                   #puts d #=> 0
-          
+
                 # :exit_signal is triggered when the remote is killed by signal.
                 # this would normally raise a Net::SSH::Simple::Error but
                 # we suppress that here by returning :no_raise
                 when :exit_signal
                   #puts d  # won't fire in this example, could be "TERM"
                   :no_raise
-          
+
                   # :finish triggers after :exit_code when the command exits normally.
                    # it does *not* trigger when the remote process exits by signal!
                 when :finish
@@ -309,7 +340,7 @@ module Puppetizer
       end
     end
 
-    
+
 
     # read the inventory
     def puppetize(section_key)
@@ -339,7 +370,7 @@ module Puppetizer
         end
       else
         Escort::Logger.error.error "NO SUCH SECTION #{section}"
-      end 
+      end
     end
 
     def status()
@@ -370,7 +401,8 @@ module Puppetizer
 
     def setup_code_manager(host)
       Escort::Logger.output.puts "Setting up Code Manager on #{host}"
-      sudo = @sudo
+      user_start = @user_start
+      user_end = @user_end
       ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
 
     end
@@ -427,7 +459,7 @@ module Puppetizer
     def self.parse(row)
       split_row = row.split(/\s+/)
       hash = {}
-      hostname = split_row.shift  
+      hostname = split_row.shift
       csr_attributes = false
       split_row.each do | s |
         if s.include?('=')

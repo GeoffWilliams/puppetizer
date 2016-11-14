@@ -20,6 +20,30 @@ Or install it yourself as:
 
     $ gem install puppetizer
 
+
+
+# sudo
+Login to machines as user `fred` and become root using `sudo` and `fred`'s password: `freddy123`.
+
+If passwordless sudo is in use, omit the export of `PUPPETIZER_USER_PASSWORD`.
+
+```shell
+export PUPPETIZER_USER_PASSWORD=freddy123 # password for the user (for SSH)
+puppetizer --ssh_username fred
+```
+
+# su
+Login to machines as user `fred` and become `root` using `su` with password `topsecr3t`
+
+```shell
+export PUPPETIZER_USER_PASSWORD=freddy123 # password for the user (for SSH)
+export PUPPETIZER_ROOT_PASSWORD=topsecr3t # password for root (asked by su)
+puppetizer --swap-user su --ssh-username fred
+```
+
+
+
+
 ## Usage
 
 TODO: Write usage instructions here
@@ -38,4 +62,3 @@ Bug reports and pull requests are welcome on GitHub at https://github.com/[USERN
 ## License
 
 The gem is available as open source under the terms of the [MIT License](http://opensource.org/licenses/MIT).
-

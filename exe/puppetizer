@@ -11,21 +11,27 @@ Escort::App.create do |app|
   #app.requires_arguments
 
   app.options do |opts|
-    opts.opt :ssh_username, 
-      'Username to use when logging in over SSH', 
-      :long => '--ssh-username', 
-      :type => :string, 
+    opts.opt :ssh_username,
+      'Username to use when logging in over SSH',
+      :long => '--ssh-username',
+      :type => :string,
       :default => 'root'
+
+      opts.opt :swap_user,
+        'Username to use when logging in over SSH',
+        :long => '--swap-user',
+        :type => :string,
+        :default => 'sudo'
 #
 #    opts.opt :console_admin_password,
 #      'Initial console admin password',
 #      :long => '--console-admin-password',
 #      :default => 'changeme'
   #
-  #  opts.opt :puppetmasters, 
-  #    "run puppetizer on all known master nodes", 
-  #    :long => '--puppetmasters', 
-  #    :type => :boolean, 
+  #  opts.opt :puppetmasters,
+  #    "run puppetizer on all known master nodes",
+  #    :long => '--puppetmasters',
+  #    :type => :boolean,
   #    :default => false
   end
 
@@ -43,7 +49,7 @@ Escort::App.create do |app|
         :type => :string,
         :default => 'puppet.demo.internal'
       )
-    
+
       opts.opt(:console_admin_password,
         'Initial console admin password',
         :long => '--console-admin-password',

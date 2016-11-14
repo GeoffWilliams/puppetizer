@@ -1,14 +1,14 @@
 # setup root user for code manager.  If you have root, it makes admin easier
-# later on in puppet code, we setup a psquared user which allows us to do this 
+# later on in puppet code, we setup a psquared user which allows us to do this
 # as non-root
 PATH=/opt/puppetlabs/puppet/bin/:$PATH
-<%= sudo %> gem install pe_rbac
-<%= sudo %> pe_rbac code_manager --password changeme
-<%= sudo %> puppet-code deploy  --all --wait
+<%= user_start %> gem install pe_rbac <%= user_end %>
+<%= user_start %> pe_rbac code_manager --password changeme <%= user_end %>
+<%= user_start %> puppet-code deploy  --all --wait <%= user_end %>
 
 # with the new code, checked out, run puppet (this one doesn't seem
 # to do anything - timing? isn't that what --wait does...?)
-<%= sudo %> puppet agent -t
+<%= user_start %> puppet agent -t <%= user_end %>
 
 # ...and again
-<%= sudo %> puppet agent -t
+<%= user_start %> puppet agent -t <%= user_end %>

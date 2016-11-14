@@ -7,3 +7,5 @@
 /pkg/
 /spec/reports/
 /tmp/
+agent_installers
+get_agents.sh
