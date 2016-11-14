@@ -1,6 +1,6 @@
 # install gems for puppetclassify - must restart after this
-<%= user_start %> /opt/puppetlabs/puppet/bin/gem install puppetclassify <%= user_end %>
-<%= user_start %> /opt/puppetlabs/server/bin/puppetserver gem install puppetclassify <%= user_end %>
+<%= user_start %> /opt/puppetlabs/puppet/bin/gem list puppetclassify | grep puppetclassify || /opt/puppetlabs/puppet/bin/gem install puppetclassify <%= user_end %>
+<%= user_start %> /opt/puppetlabs/server/bin/puppetserver gem list puppetclassify | grep puppetclassify || /opt/puppetlabs/server/bin/puppetserver gem install puppetclassify <%= user_end %>
 <%= user_start %> systemctl restart pe-puppetserver <%= user_end %>
 
 # system will not be setup until we run puppet

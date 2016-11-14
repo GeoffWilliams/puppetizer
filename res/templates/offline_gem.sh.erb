@@ -3,7 +3,7 @@ cd <%= gem_cache_dir %>
 # normal ruby
 <%= user_start %> /opt/puppetlabs/puppet/bin/gem install --force --local *.gem <%= user_end %>
 
-# jruby
+# jruby FIXME - only install what is there...
 <%= user_start %> /opt/puppetlabs/server/bin/puppetserver gem install --force --local trollop*.gem <%= user_end %>
 <%= user_start %> /opt/puppetlabs/server/bin/puppetserver gem install --force --local highline*.gem <%= user_end %>
 <%= user_start %>/opt/puppetlabs/server/bin/puppetserver gem install --force --local hiera-eyaml*.gem <%= user_end %>
