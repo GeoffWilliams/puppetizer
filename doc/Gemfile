@@ -1,0 +1,16 @@
+source 'https://rubygems.org'
+
+# Updated version of net-ssh-simple with PTY support
+gem 'net-ssh-simple', 
+  # Direct download
+  :git => 'https://github.com/GeoffWilliams/net-ssh-simple', :ref => 'pty_support'
+  # Run from path
+  # :path => '~/github/net-ssh-simple'
+
+# Puppetizer library itself
+gem 'puppetizer', 
+  # Direct download
+  :git => 'https://github.com/GeoffWilliams/puppetizer'
+  # Run from path
+  #:path => '~/github/puppetizer'
+
