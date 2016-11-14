@@ -27,7 +27,7 @@ module Puppetizer
     @@puppet_r10k_yaml    = "#{@@puppet_etc}/r10k/r10k.yaml"
     @@inifile = 'inventory/hosts'
 
-    @@agent_local_path = 'agent_installers'
+    @@agent_local_path = './agent_installers'
     @@agent_upload_path  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
 
     def initialize(options, arguments)
@@ -157,10 +157,14 @@ module Puppetizer
     end
 
     def upload_agent_installers(host)
+      user_start = @user_start
+      user_end = @user_end
       if Dir.exists?(@@agent_local_path)
         Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
-            scp(host, f, "/tmp/", "Uploading " + File.basename(f))
+            filename = @@agent_local_path + File::SEPARATOR + f
+            scp(host, filename, "/tmp/", "Uploading " + File.basename(f))
+            ssh(host, "#{user_start} mv /tmp/#{f} #{@@agent_upload_path} #{user_end}")
           end
         }
       end
