@@ -9,6 +9,7 @@
 ## Development instructions
 
 ### Prerequisites
+#### On the machine talking to the puppetmaster
 
 * ruby
 
@@ -22,6 +23,13 @@ _Note:  This will install the system ruby - you don't need to (nor should you...
   ```shell
   gem install bundler
   ```
+
+#### On the puppetmaster
+* The `Development Tools` group package needs to be installed (some of the gems we use need it)
+
+```shell
+yum groupinstall 'Development Tools'
+```
 
 ## Obtain Puppetizer
 ```shell
