@@ -20,6 +20,7 @@ module Puppetizer
     @@run_r10k_template           = './templates/run_r10k.sh.erb'
     @@csr_attributes_template     = './templates/csr_attributes.yaml.erb'
     @@setup_code_manager_template = './templates/setup_code_manager.sh.erb'
+    @@offline_gem_template        = './templates/offline_gem.sh.erb'
 
     @@puppet_path         = '/opt/puppetlabs/puppet/bin'
     @@puppet_etc          = '/etc/puppetlabs/'
@@ -27,8 +28,9 @@ module Puppetizer
     @@puppet_r10k_yaml    = "#{@@puppet_etc}/r10k/r10k.yaml"
     @@inifile = 'inventory/hosts'
 
-    @@agent_local_path = './agent_installers'
-    @@agent_upload_path  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
+    @@agent_local_path    = './agent_installers'
+    @@agent_upload_path   = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
+    @@gem_local_path      = './gems'
 
     def initialize(options, arguments)
       @options = options
@@ -170,6 +172,28 @@ module Puppetizer
       end
     end
 
+    def upload_offline_gems(host)
+      user_start = @user_start
+      user_end = @user_end
+      gem_cache_dir = '/tmp/gems'
+      install_needed = false
+      local_cache = @@gem_local_path + File::SEPARATOR + 'cache'
+      if Dir.exists?(local_cache)
+        ssh(host, "mkdir -p #{gem_cache_dir}")
+        Dir.foreach(local_cache) { |f|
+          if f != '.' and f != '..'
+            filename = local_cache + File::SEPARATOR + f
+            scp(host, filename, gem_cache_dir, "Uploading " + File.basename(f))
+            install_needed = true
+          end
+        }
+
+        if install_needed
+          ssh(host, ERB.new(read_template(@@offline_gem_template), nil, '-').result(binding))
+        end
+      end
+    end
+
     def install_pe(host, csr_attributes, data)
       Escort::Logger.output.puts "Installing Puppet Enterprise on #{host}"
 
@@ -193,6 +217,9 @@ module Puppetizer
 
       # SCP up the agents if present
       upload_agent_installers(host)
+
+      # Upload the offline gems if present
+      upload_offline_gems(host)
 
       # run puppet to finalise configuration
       ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
