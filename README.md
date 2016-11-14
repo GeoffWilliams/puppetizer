@@ -13,7 +13,7 @@
 * ruby
 
   ```shell
-  yum install -y ruby ruby-devel rubygems
+  yum install -y ruby ruby-devel rubygems git
   ```
 _Note:  This will install the system ruby - you don't need to (nor should you...) install this software on a Puppet Enterprise Master_
 

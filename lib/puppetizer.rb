@@ -15,6 +15,7 @@ module Puppetizer
 
     @@install_puppet_template     = './templates/install_puppet.sh.erb'
     @@install_pe_master_template  = './templates/install_pe_master.sh.erb'
+    @@pe_postinstall_template     = './template/pe_postinstall.sh.erb'
     @@puppet_status_template      = './templates/puppet_status.sh.erb'
     @@r10k_yaml_template          = './templates/r10k.yaml.erb'
     @@run_r10k_template           = './templates/run_r10k.sh.erb'
@@ -220,6 +221,9 @@ module Puppetizer
 
       # Upload the offline gems if present
       upload_offline_gems(host)
+
+      # post-install (gems) after we have uploaded any offline gems
+      ssh(host, ERB.new(read_template(@@pe_postinstall_template), nil, '-').result(binding))
 
       # run puppet to finalise configuration
       ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
