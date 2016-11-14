@@ -2,7 +2,7 @@
 # later on in puppet code, we setup a psquared user which allows us to do this
 # as non-root
 PATH=/opt/puppetlabs/puppet/bin/:$PATH
-<%= user_start %> gem install pe_rbac <%= user_end %>
+<%= user_start %> gem list pe_rbac | grep pe_rbac || gem install pe_rbac <%= user_end %>
 <%= user_start %> pe_rbac code_manager --password changeme <%= user_end %>
 <%= user_start %> puppet-code deploy  --all --wait <%= user_end %>
 

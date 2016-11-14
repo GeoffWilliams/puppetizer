@@ -200,7 +200,11 @@ module Puppetizer
 
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
-      deploy_code = data.has_key?('deploy_code')
+      if data.has_key?('deploy_code') and data['deploy_code'] == true
+        deploy_code = true
+      else
+        deploy_code = false
+      end 
       control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
       user_start = @user_start
       user_end = @user_end
