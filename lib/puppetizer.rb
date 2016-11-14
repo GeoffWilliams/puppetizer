@@ -10,6 +10,8 @@ require 'escort'
 require 'erb'
 require 'tempfile'
 require 'ruby-progressbar'
+require 'time'
+
 module Puppetizer
   class Puppetizer < ::Escort::ActionCommand::Base
 
@@ -95,6 +97,14 @@ module Puppetizer
       else
         raise Escort::UserError.new("Inventory file not found at #{@@inifile}")
       end
+
+      @action_log = "./puppetizer_#{Time.now.iso8601}.log"
+    end
+
+    def action_log(message)
+      File.open(@action_log, 'a') do |file|
+        file.write message + "\n"
+      end
     end
 
     def setup_csr_attributes(host, csr_attributes, data)
@@ -121,7 +131,10 @@ module Puppetizer
     end
 
     def install_puppet(host, csr_attributes = false, data={})
-      Escort::Logger.output.puts "Installing puppet agent on #{host}"
+      message = "Installing puppet agent on #{host}"
+      Escort::Logger.output.puts message
+      action_log('# ' + message)
+
       puppetmaster = @options[:global][:commands][command_name][:options][:puppetmaster]
       user_start = @user_start
       user_end = @user_end
@@ -200,7 +213,9 @@ module Puppetizer
     end
 
     def install_pe(host, csr_attributes, data)
-      Escort::Logger.output.puts "Installing Puppet Enterprise on #{host}"
+      message = "Installing Puppet Enterprise on #{host}"
+      Escort::Logger.output.puts message
+      action_log('# ' + message)
 
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
@@ -311,6 +326,7 @@ module Puppetizer
     def scp(host, local_file, remote_file, job_name='Upload data')
       if port_open?(host,22)
         if upload_needed(host, local_file, remote_file)
+          action_log("scp #{local_file} to #{host}:#{remote_file}")
           busy_spinner = BusySpinner.new
           begin
             # local variables are visible in instance-eval but instance ones are not...
@@ -355,6 +371,7 @@ module Puppetizer
     end
 
     def ssh(host, cmd, no_print=false, no_capture=false)
+      action_log(cmd)
       user_start = @user_start
       request_pty = ! @user_start.empty?
       if port_open?(host,22)
