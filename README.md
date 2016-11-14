@@ -57,6 +57,51 @@ Or install it yourself as:
 
 # Usage
 
+## Setup SSH authentication
+By far the easiest and securest way to run puppetizer is to load keys into the SSH agent and not worry about things:
+
+### Public Key based authentication
+First start the agent
+---------------------
+
+```shell
+eval `ssh-agent -s`
+```
+
+Now add your key
+-----------------
+
+```shell
+ssh-add ssh_keys/id_rsa
+```
+
+If you don't yet have key based authentication in place, then its easiest to generate a new keypair locally and use ssh-copy-id to install it.  Mac users will need to `brew install ssh-copy-id` to obtain the command.  See https://valdhaus.co/writings/ansible-post-install/ for a worked example.
+
+Alternatively, read on for details of how password based authentication works.
+
+### Password based authentication
+To stop passwords appearing in the process table, they are passed by exporting the variable `PUPPETIZER_USER_PASSWORD`, e.g.:
+
+```shell
+export PUPPETIZER_USER_PASSWORD=t0ps3cret
+```
+
+NOTES
+-----
+* `PUPPETIZER_USER_PASSWORD` will be sent to all machines puppetizer tries to connect to.  This is to avoid building huge lists of passwords for your important machines.  Your strongly encouraged to setup SSH public key based authentication(!)
+* By default, puppetizer will try to connect as user `root`, choose a different user with the `--ssh-username` argument
+* You may encounter the following error if you have SSH keys loaded in the SSH agent:
+
+  ```shell
+  disconnected: Too many authentication failures for root (2) @ #<Net::SSH::Simple::Result exception=#<Net::SSH::Disconnect: disconnected: Too many authentication failures for root (2)> finish_at=2016-09-25 23:54:48 +1000 stderr="" stdout="" success=false>
+  ```
+
+  In this case, the fix is to unload all loaded keys:
+
+  ```shell
+  ssh-add -D
+  ```
+
 ## Root access
 Puppetizer needs to be able to gain access to the `root` account, the supported techniques are:
 * Direct login as `root`
@@ -83,6 +128,17 @@ export PUPPETIZER_ROOT_PASSWORD=topsecr3t # password for root (asked by su)
 puppetizer --swap-user su --ssh-username fred
 ```
 
+## Inventory file
+Puppetizer uses an inventory file to identify nodes to install puppet enterprise components on.  Please see [inventory file](doc/inventory/hosts) for an example and customise according to your needs as follows:
+
+* Under the `[puppetmasters]` heading, list the address(es) of hosts to install as monolithic masters
+* Under the `[agents]` heading, list the address(es) of hosts to install as agents
+* For each node, specify `pp_role` if you would like to assign a role class via CSR attributes
+* For your master, set `deploy_code=true` to checkout an R10K control repo
+* Use `--control-repo` when running puppetizer to specify the location of the control repo
+
+The file should be saved as `./inventory/hosts` in the directory you want to run puppetizer from.
+
 ## Puppet Enterprise installation media
 * Please obtain a copy of Puppet Enterprise from [puppet.com](puppet.com) and place the tarball in the directory you want to run puppetizer from
 
@@ -100,6 +156,23 @@ Puppetizer will upload and install all gems found in the `./gems` directory rela
 * Please create a file called `gems` in the directory you want to run puppetizer from, then use the `gem` command to obtain a copy of the gems you need.
 * A basic set of gems can be downloaded with the script at https://github.com/GeoffWilliams/puppetizer/blob/master/get_gems.sh
 
+
+## Directory Layout
+Combining the above instructions, the directory to run puppetizer from should look something like this:
+
+```
+├── agent_installers                                  # Agent installers to upload to master
+│   ├── puppet-agent-1.7.1-1.el4.i386.rpm
+│   ├── puppet-agent-1.7.1-1.el4.x86_64.rpm
+│   ├── ...
+── gems                                               # Gems to upload to master
+│   ├── bin
+│   ├── ...
+├── inventory
+│   └── hosts
+├── license.key                                       # Licence key to upload to master
+├── puppet-enterprise-2016.4.2-el-7-x86_64.tar.gz     # Installation media
+```
 
 ### Install Puppet Enterprise Masters
 ```shell
