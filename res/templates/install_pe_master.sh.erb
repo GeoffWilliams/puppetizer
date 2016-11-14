@@ -9,5 +9,12 @@ sed 's/"console_admin_password": ""/"console_admin_password": "<%= password %>"/
 <% else -%>
   sed -i '$i# deploy_code not set in inventory' pe.conf
 <% end %>
+
+<% if dns_alt_names -%>
+  sed -i '$i"pe_install::puppet_master_dnsaltnames": [<%= dns_alt_names %>]' pe.conf
+<% else -%>
+    sed -i '$i# dns_alt_names not set in inventory' pe.conf
+<% end -%>
+
 cd puppet-enterprise-* && \
 <%= user_start %> ./puppet-enterprise-installer -c ../pe.conf <%= user_end %>

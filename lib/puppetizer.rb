@@ -142,9 +142,13 @@ module Puppetizer
 
     def upload_needed(host, local_file, remote_file)
       local_md5=%x{md5sum #{local_file}}.strip.split(/\s+/)[0]
-      remote_md5=ssh(host, "md5sum #{remote_file}").stdout.strip.split(/\s+/)[0]
+      remote_md5=ssh(host, "md5sum #{remote_file} 2>&1", true).stdout.strip.split(/\s+/)[0]
 
-      return local_md5 != remote_md5
+      needed = local_md5 != remote_md5
+      if ! needed
+        Escort::Logger.output.puts "#{local_md5} #{File.basename(local_file)}"
+      end
+      return needed
     end
 
     def read_template(template)
@@ -166,8 +170,8 @@ module Puppetizer
         Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
             filename = @@agent_local_path + File::SEPARATOR + f
-            scp(host, filename, "/tmp/", "Uploading " + File.basename(f))
-            ssh(host, "#{user_start} mv /tmp/#{f} #{@@agent_upload_path} #{user_end}")
+            scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
+            ssh(host, "#{user_start} cp /tmp/#{f} #{@@agent_upload_path} #{user_end}")
           end
         }
       end
@@ -176,7 +180,7 @@ module Puppetizer
     def upload_offline_gems(host)
       user_start = @user_start
       user_end = @user_end
-      gem_cache_dir = '/tmp/gems'
+      gem_cache_dir = '/tmp/gems/'
       install_needed = false
       local_cache = @@gem_local_path + File::SEPARATOR + 'cache'
       if Dir.exists?(local_cache)
@@ -184,7 +188,7 @@ module Puppetizer
         Dir.foreach(local_cache) { |f|
           if f != '.' and f != '..'
             filename = local_cache + File::SEPARATOR + f
-            scp(host, filename, gem_cache_dir, "Uploading " + File.basename(f))
+            scp(host, filename, gem_cache_dir + f, "Uploading " + f)
             install_needed = true
           end
         }
@@ -200,20 +204,35 @@ module Puppetizer
 
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
+
+      # deploy code with code manager?
       if data.has_key?('deploy_code') and data['deploy_code'] == true
         deploy_code = true
       else
         deploy_code = false
-      end 
-      control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
+      end
+
+      # use control repo supplied in inventory else command line default
+      if data.has_key?('control_repo') and ! data['control_repo'].empty?
+        control_repo = data['control_repo']
+      else
+        control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
+      end
+
+      # dns_alt_names from inventory
+      if data.has_key?('dns_alt_names') and ! data['dns_alt_names'].empty?
+        # each pair needs to be wrapped in double quotes
+        dns_alt_names = data['dns_alt_names'].split(',').map { |s| '"' + s + '"'}.join(',')
+      else
+        dns_alt_names = false
+      end
       user_start = @user_start
       user_end = @user_end
 
       # SCP the installer
       tarball = find_pe_tarball
-      if upload_needed(host, tarball, "/tmp/#{tarball}")
-        scp(host, tarball, "/tmp/", "Upload PE Media")
-      end
+      scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
+
 
       setup_csr_attributes(host, csr_attributes, data)
 
@@ -237,7 +256,7 @@ module Puppetizer
       end
     end
 
-    def defrag_line(d, channel)
+    def defrag_line(d, channel, no_print)
       # The sudo prompt doesn't have a newline at the end so the main stream
       # reading code never catches it, lets capture it here...
       # based on: http://stackoverflow.com/a/4235463
@@ -266,7 +285,9 @@ module Puppetizer
       # read the input line-wise (it *will* arrive fragmented!)
       (@buf ||= '') << d
       while line = @buf.slice!(/(.*)\r?\n/)
-        Escort::Logger.output.puts line.strip #=> "hello stderr"
+        if ! no_print
+          Escort::Logger.output.puts line.strip #=> "hello stderr"
+        end
       end
     end
 
@@ -289,49 +310,51 @@ module Puppetizer
 
     def scp(host, local_file, remote_file, job_name='Upload data')
       if port_open?(host,22)
-        busy_spinner = BusySpinner.new
-        begin
-          # local variables are visible in instance-eval but instance ones are not...
-          # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
-          ssh_opts = @ssh_opts
-          progressbar = ProgressBar.create(:title => job_name)
-          Net::SSH::Simple.sync do
-            scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
-              #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
+        if upload_needed(host, local_file, remote_file)
+          busy_spinner = BusySpinner.new
+          begin
+            # local variables are visible in instance-eval but instance ones are not...
+            # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
+            ssh_opts = @ssh_opts
+            progressbar = ProgressBar.create(:title => job_name)
+            Net::SSH::Simple.sync do
+              scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
+                #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
 
-              # for some reason, sent bytes is too high when we are sending to
-              # AWS over a slow link.  I don't know if its because they bytes
-              # are in-flight or if its just because of bug in net-scp but
-              # pulsing the progress bar to let user know that status is now
-              # unknown/finishing
-              if sent==total
-                t = Thread.new { busy_spinner.run }
-                t.abort_on_exception = true
-              else
-                percent_complete = (sent/total.to_f) * 100
-                progressbar.progress=(percent_complete)
+                # for some reason, sent bytes is too high when we are sending to
+                # AWS over a slow link.  I don't know if its because they bytes
+                # are in-flight or if its just because of bug in net-scp but
+                # pulsing the progress bar to let user know that status is now
+                # unknown/finishing
+                if sent==total
+                  t = Thread.new { busy_spinner.run }
+                  t.abort_on_exception = true
+                else
+                  percent_complete = (sent/total.to_f) * 100
+                  progressbar.progress=(percent_complete)
+                end
               end
             end
-          end
-          # control returns here
-          if busy_spinner
-            busy_spinner.stop
-          end
+            # control returns here
+            if busy_spinner
+              busy_spinner.stop
+            end
 
-        rescue Net::SSH::Simple::Error => e
-          if e.message =~ /AuthenticationFailed/
-            error_message = "Authentication failed for #{ssh_opts[:user]}@#{host}, key loaded?"
-          else
-            error_message = 'no'#e.message
+          rescue Net::SSH::Simple::Error => e
+            if e.message =~ /AuthenticationFailed/
+              error_message = "Authentication failed for #{ssh_opts[:user]}@#{host}, key loaded?"
+            else
+              error_message = 'no'#e.message
+            end
+            raise PuppetizerError, error_message
           end
-          raise PuppetizerError, error_message
         end
       else
         raise PuppetizerError, "host #{host} not responding to SSH"
       end
     end
 
-    def ssh(host, cmd, no_capture=false)
+    def ssh(host, cmd, no_print=false, no_capture=false)
       user_start = @user_start
       request_pty = ! @user_start.empty?
       if port_open?(host,22)
@@ -343,7 +366,7 @@ module Puppetizer
                 when :start
                   #puts "CONNECTED"
                 when :stdout, :stderr
-                  defrag_line(d,c)
+                  defrag_line(d,c,no_print)
                   if no_capture
                     :no_append
                   end
