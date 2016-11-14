@@ -160,7 +160,7 @@ module Puppetizer
       if Dir.exists?(@@agent_local_path)
         Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
-            scp(host, f, "/tmp/", "Uploading " + basename(f))
+            scp(host, f, "/tmp/", "Uploading " + File.basename(f))
           end
         }
       end
