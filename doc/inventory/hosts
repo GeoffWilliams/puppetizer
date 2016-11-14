@@ -1,0 +1,13 @@
+[puppetmasters]
+puppet.demo.internal deploy_code=true pp_role=r_role::puppet::master
+
+[agents]
+lb.demo.internal pp_role=r_role::lb::haproxy
+monitor.demo.internal pp_role=r_role::monitor::nagios_server
+java-a.demo.internal pp_role=r_role::webapp::geoserver
+java-b.demo.internal pp_role=r_role::webapp::geoserver
+lamp-a.demo.internal pp_role=r_role::web_service::lamp_server
+lamp-b.demo.internal pp_role=r_role::web_service::lamp_server
+wp-a.demo.internal pp_role=r_role::webapp::wordpress
+wp-b.demo.internal pp_role=r_role::webapp::wordpress
+# windows has to be done manually...
