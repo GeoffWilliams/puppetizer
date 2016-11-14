@@ -4,7 +4,34 @@ Welcome to your new gem! In this directory, you'll find the files you need to be
 
 TODO: Delete this and the text above, and describe your gem
 
-## Installation
+## Development instructions
+
+### Prerequisites
+
+* ruby
+
+  ```shell
+  yum install -y ruby
+  ```
+_Note:  This will install the system ruby - you don't need to (nor should you...) install this software on a Puppet Enterprise Master_
+
+* bundler
+
+  ```shell
+  gem install bundler
+  ```
+
+
+```shell
+git clone https://github.com/GeoffWilliams/puppetizer
+cd puppetizer
+bundle install
+bundle exec ./puppetizer ...
+```
+
+Where `...` represents the arguments to the puppetizer command
+
+## Bundle installation
 
 Add this line to your application's Gemfile:
 
@@ -41,6 +68,16 @@ export PUPPETIZER_ROOT_PASSWORD=topsecr3t # password for root (asked by su)
 puppetizer --swap-user su --ssh-username fred
 ```
 
+# Offline
+Sometimes your puppetmaster will have no internet access or internet downloads for gems, agents etc are slowing you down.  In this case, puppetizer has support to upload the files needed from a local directory to keep you moving.
+
+## Puppet Agents
+Puppetizer will download the
+
+## Gems
+Puppetizer will upload and install all gems found in the `./gems` directory relative to where you are running the `puppetizer` command from.
+
+To download the gems you need, try running https://github.com/GeoffWilliams/puppetizer/blob/master/get_gems.sh
 
 
 
