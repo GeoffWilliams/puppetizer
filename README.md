@@ -11,18 +11,21 @@
 ### Prerequisites
 #### On the machine talking to the puppetmaster
 
-* ruby
+##### ruby (on RHEL 7)
 
-  ```shell
-  yum install -y ruby ruby-devel rubygems git
-  ```
+```shell
+yum install -y ruby ruby-devel rubygems git
+```
 _Note:  This will install the system ruby - you don't need to (nor should you...) install this software on a Puppet Enterprise Master_
 
-* bundler
+##### ruby (on RHEL 6)
+RHEL 6 ships ruby 1.8.7 which is ancient.  You will need a newer ruby (2.0 works well) to use this tool.  Please contact your system administrator for details of how to install and configure ruby 2 through RHEL software collections.
 
-  ```shell
-  gem install bundler
-  ```
+##### bundler
+
+```shell
+gem install bundler
+```
 
 #### On the puppetmaster
 * The `Development Tools` group package needs to be installed (some of the gems we use need it)
