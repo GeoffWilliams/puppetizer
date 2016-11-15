@@ -240,7 +240,7 @@ module Puppetizer
         if data.has_key?('mom') and ! data['mom'].empty?
           mom = data['mom']
         else
-          raise PuppetizerError "You must specify a mom when installing compile masters.  Please set mom=PUPPETMASTER_FQDN"
+          raise PuppetizerError, "You must specify a mom when installing compile masters.  Please set mom=PUPPETMASTER_FQDN"
         end
 
         if data.has_key?('lb') and ! data['lb'].empty?
@@ -252,9 +252,9 @@ module Puppetizer
         compile_master = false
 
         if data.has_key?('r10k_private_key') and ! data['r10k_private_key'].empty?
-          r10k_private_key_path = Dir.pwd + Dir.SEPARATOR + data['r10k_private_key']
-          if ! File.exists(r10k_private_key_path)
-            raise PuppetizerError "r10k_private_key not found at #{r10k_private_key_path}"
+          r10k_private_key_path = Dir.pwd + File::SEPARATOR + data['r10k_private_key']
+          if ! File.exists?(r10k_private_key_path)
+            raise PuppetizerError, "r10k_private_key not found at #{r10k_private_key_path}"
           end
         else
           r10k_private_key_path = ''
@@ -335,8 +335,14 @@ module Puppetizer
 
         # copy r10k private key if needed
         if r10k_private_key_path
-          ssh(host, "mkdir -p #{@@puppet_r10k_ssh}")
-          scp(host, r10k_private_key_path, @@puppet_r10k_key)
+
+          # upload to /tmp
+          temp_keyfile = "/tmp/#{File.basename(@@puppet_r10k_key)}"
+          scp(host, r10k_private_key_path, temp_keyfile)
+
+          # make directory and move temp keyfile there
+          ssh(host, "#{user_start} mkdir -p #{@@puppet_r10k_ssh} #{user_end}")
+          ssh(host, "#{user_start} mv #{temp_keyfile} #{@@puppet_r10k_key} #{user_end}")
         end
 
         # run installation
@@ -344,8 +350,8 @@ module Puppetizer
 
         # fix permissions on key
         if r10k_private_key_path
-          ssh(host, "chown pe-puppet.pe-puppet #{@@puppet_r10k_key)}")
-          ssh(host, "chmod 600 #{@@puppet_r10k_key)}")
+          ssh(host, "chown pe-puppet.pe-puppet #{@@puppet_r10k_key}")
+          ssh(host, "chmod 600 #{@@puppet_r10k_key}")
         end
       end
 
@@ -381,7 +387,7 @@ module Puppetizer
             # don't forget to press enter :)
             channel.send_data "\n"
           else
-            raise PuppetizerError "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
+            raise PuppetizerError, "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
           end
         elsif @swap_user == 'su'
           if @root_password
@@ -389,7 +395,7 @@ module Puppetizer
             channel.send_data @root_password
             channel.send_data "\n"
           else
-            raise PuppetizerError "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
+            raise PuppetizerError, "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
           end
         end
       end
