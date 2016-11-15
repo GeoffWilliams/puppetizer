@@ -1,2 +1,3 @@
+# install PE agent
 curl -k https://<%= mom %>:8140/packages/current/install.bash > /tmp/install.bash && \
-<%= user_start %>bash -s main:dns_alt_names=<%= dns_alt_names %> < /tmp/install.bash <% user_end %>
+<%= user_start %>bash -s main:dns_alt_names=<%= dns_alt_names %> < /tmp/install.bash <%= user_end %>

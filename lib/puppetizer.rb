@@ -190,6 +190,8 @@ module Puppetizer
       user_start = @user_start
       user_end = @user_end
       if Dir.exists?(@@agent_local_path)
+        # make sure the final location exists on puppet master
+        ssh(host, "#{user_start} mkdir -p #{@@agent_upload_path} #{user_end}")
         Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
             filename = @@agent_local_path + File::SEPARATOR + f
@@ -231,7 +233,7 @@ module Puppetizer
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
 
       # compile master installation?
-      if data.has_key?('compile_master') and data['compile_master'] == true
+      if data.has_key?('compile_master') and data['compile_master'] == "true"
         compile_master = true
         if data.has_key?('mom') and ! data['mom'].empty?
           mom = data['mom']
@@ -249,7 +251,7 @@ module Puppetizer
       end
 
       # deploy code with code manager?
-      if data.has_key?('deploy_code') and data['deploy_code'] == true
+      if data.has_key?('deploy_code') and data['deploy_code'] == "true"
         deploy_code = true
       else
         deploy_code = false
@@ -272,11 +274,6 @@ module Puppetizer
       user_start = @user_start
       user_end = @user_end
 
-      # SCP the installer
-      tarball = find_pe_tarball
-      scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
-
-
       setup_csr_attributes(host, csr_attributes, data)
 
       # run the PE installer
@@ -285,13 +282,16 @@ module Puppetizer
         ssh(host, ERB.new(read_template(@@install_cm_template), nil, '-').result(binding))
 
         # sign the cert on the mom
+        Escort::Logger.output.puts "Waiting 5 seconds for CSR to arrive on MOM"
+        sleep(5)
         action_log("# --- begin run command on #{mom} ---")
         ssh(mom, ERB.new(read_template(@@sign_cm_cert_template), nil, '-').result(binding))
         action_log("# --- end run command on #{mom} ---")
 
 
         # copy the classification script to the MOM and run it
-        script_path = "/tmp/#{@@classify_cm_script}"
+        Escort::Logger.output.puts "Classifying #{host} as Compile Master"
+        script_path = "/tmp/#{File.basename(@@classify_cm_script)}"
 
         action_log("# --- begin copy file to #{mom} ---")
         scp(mom, resource_path(@@classify_cm_script), script_path)
@@ -301,16 +301,24 @@ module Puppetizer
         # pin the CM to the PE Masters group and set a load balancer address for
         # pe_repo (if provided)
         action_log("# --- begin run command on #{mom} ---")
+        ssh(mom, "chmod +x #{script_path}")
         ssh(mom, "#{user_start} #{script_path} #{host} #{lb} #{user_end}")
         action_log("# --- end run command on #{mom} ---")
 
         # Run puppet in the correct order
+        Escort::Logger.output.puts "Running puppet on compile master: #{host}"
         ssh(host, '/opt/puppetlabs/bin/puppet agent -t')
+
+        Escort::Logger.output.puts "Running puppet on MOM: #{mom}"
         action_log("# --- begin run command on #{mom} ---")
         ssh(mom, '/opt/puppetlabs/bin/puppet agent -t')
         action_log("# --- end run command on #{mom} ---")
       else
         # full PE installation
+        # SCP the installer
+        tarball = find_pe_tarball
+        scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
+
         ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
       end
 
@@ -329,6 +337,8 @@ module Puppetizer
       if deploy_code and ! compile_master
         setup_code_manager(host)
       end
+
+      Escort::Logger.output.puts "Puppet Enterprise installation for #{host} completed"
     end
 
     def defrag_line(d, channel, no_print)
