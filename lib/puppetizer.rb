@@ -33,6 +33,8 @@ module Puppetizer
     @@puppet_etc          = '/etc/puppetlabs/'
     @@puppet_confdir      = "#{@@puppet_etc}/puppet"
     @@puppet_r10k_yaml    = "#{@@puppet_etc}/r10k/r10k.yaml"
+    @@puppet_r10k_ssh     = "#{@@puppet_etc}/puppetserver/ssh"
+    @@puppet_r10k_key     = "#{@@puppet_r10k_ssh}/id-control_repo.rsa"
     @@inifile = 'inventory/hosts'
 
     @@agent_local_path    = './agent_installers'
@@ -248,6 +250,15 @@ module Puppetizer
         end
       else
         compile_master = false
+
+        if data.has_key?('r10k_private_key') and ! data['r10k_private_key'].empty?
+          r10k_private_key_path = Dir.pwd + Dir.SEPARATOR + data['r10k_private_key']
+          if ! File.exists(r10k_private_key_path)
+            raise PuppetizerError "r10k_private_key not found at #{r10k_private_key_path}"
+          end
+        else
+          r10k_private_key_path = ''
+        end
       end
 
       # deploy code with code manager?
@@ -315,11 +326,27 @@ module Puppetizer
         action_log("# --- end run command on #{mom} ---")
       else
         # full PE installation
+
+        puppet_r10k_key = @@puppet_r10k_key
+
         # SCP the installer
         tarball = find_pe_tarball
         scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
 
+        # copy r10k private key if needed
+        if r10k_private_key_path
+          ssh(host, "mkdir -p #{@@puppet_r10k_ssh}")
+          scp(host, r10k_private_key_path, @@puppet_r10k_key)
+        end
+
+        # run installation
         ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
+
+        # fix permissions on key
+        if r10k_private_key_path
+          ssh(host, "chown pe-puppet.pe-puppet #{@@puppet_r10k_key)}")
+          ssh(host, "chmod 600 #{@@puppet_r10k_key)}")
+        end
       end
 
       # SCP up the agents if present
@@ -552,8 +579,8 @@ module Puppetizer
       Escort::Logger.output.puts "Setting up Code Manager on #{host}"
       user_start = @user_start
       user_end = @user_end
-      ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
 
+      ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
     end
 
     def action_setup_r10k()

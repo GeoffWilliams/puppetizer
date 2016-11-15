@@ -3,7 +3,8 @@
 # as non-root
 PATH=/opt/puppetlabs/puppet/bin/:$PATH
 <%= user_start %> gem list pe_rbac | grep pe_rbac || gem install pe_rbac <%= user_end %>
-<%= user_start %> pe_rbac code_manager --password changeme <%= user_end %>
+# create and throw away a random password
+<%= user_start %> pe_rbac code_manager --password $(openssl rand -base64 32) <%= user_end %>
 <%= user_start %> puppet-code deploy  --all --wait <%= user_end %>
 
 # with the new code, checked out, run puppet (this one doesn't seem

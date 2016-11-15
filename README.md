@@ -203,6 +203,7 @@ Hosts are installed in the order specified in the file.  If you are setting up c
 * Any of the [pp_ options](https://docs.puppet.com/puppet/latest/reference/config_file_csr_attributes.html#puppet-specific-registered-ids), eg `pp_role=r_role::puppet::master`
 * `dns_alt_names` - List of DNS alternative names for this server, eg `dns_alt_names=puppet,pe-puppet,jeditemple`
 * `control_repo` - Control repo to setup code manager against, eg `control_repo=https://git.megacorp.com/puppet-control`
+* `r10k_private_key` - Local path relative to current directory for r10k private private key file needed to access `control_repo`.  This file will be automatically uploaded to the master for you.
 * `compile_master` - Set true to install this server as a Puppet Enterprise [Compile Master](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work), eg `compile_master=true`
 * `mom` - The address of the Puppet Enterprise [Master of Masters](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work) to use for this Compile Master (mandatory if `compile_master=true`)
 * `lb` - The address of the load balancer being used for compile masters, used to setup [pe_repo](https://docs.puppet.com/pe/latest/install_multimaster.html#step-4-if-using-load-balancers-configure-perepo-for-puppet-agent-installation)
