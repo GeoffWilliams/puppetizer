@@ -1,0 +1,4 @@
+puppet cert list <%= host %>
+if [ $? -eq 0 ] ; then
+  puppet cert --allow-dns-alt-names sign <%= host %>
+fi

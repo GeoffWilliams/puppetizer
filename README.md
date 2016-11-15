@@ -191,6 +191,9 @@ bundle exec puppetizer agents
 ```
 
 ## Inventory file format
+*IMPORTANT*
+Hosts are installed in the order specified in the file.  If you are setting up compile masters, make sure they are listed after the MOM they will install from!
+
 ### Sections
 #### [puppetmasters]
 * These machines will be configured as Puppet Enterprise masters
@@ -202,6 +205,7 @@ bundle exec puppetizer agents
 * `control_repo` - Control repo to setup code manager against, eg `control_repo=https://git.megacorp.com/puppet-control`
 * `compile_master` - Set true to install this server as a Puppet Enterprise [Compile Master](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work), eg `compile_master=true`
 * `mom` - The address of the Puppet Enterprise [Master of Masters](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work) to use for this Compile Master (mandatory if `compile_master=true`)
+* `lb` - The address of the load balancer being used for compile masters, used to setup [pe_repo](https://docs.puppet.com/pe/latest/install_multimaster.html#step-4-if-using-load-balancers-configure-perepo-for-puppet-agent-installation)
 
 
 #### [agents]

@@ -17,6 +17,7 @@ module Puppetizer
 
     @@install_puppet_template     = './templates/install_puppet.sh.erb'
     @@install_pe_master_template  = './templates/install_pe_master.sh.erb'
+    @@install_cm_template         = './templates/install_cm.sh.erb'
     @@pe_postinstall_template     = './templates/pe_postinstall.sh.erb'
     @@puppet_status_template      = './templates/puppet_status.sh.erb'
     @@r10k_yaml_template          = './templates/r10k.yaml.erb'
@@ -24,6 +25,9 @@ module Puppetizer
     @@csr_attributes_template     = './templates/csr_attributes.yaml.erb'
     @@setup_code_manager_template = './templates/setup_code_manager.sh.erb'
     @@offline_gem_template        = './templates/offline_gem.sh.erb'
+    @@sign_cm_cert_template       = './templates/sign_cm_cert.sh.erb'
+
+    @@classify_cm_script          = './scripts/classify_cm.rb'
 
     @@puppet_path         = '/opt/puppetlabs/puppet/bin'
     @@puppet_etc          = '/etc/puppetlabs/'
@@ -164,6 +168,12 @@ module Puppetizer
       return needed
     end
 
+    # Return the absolute filename of a named resource in this gem
+    def resource_path(resource)
+      File.join(
+        File.dirname(File.expand_path(__FILE__)), "../res/#{resource}")
+    end
+
     def read_template(template)
       # Override shipped templates with local ones if present
       if File.exist?(template)
@@ -220,6 +230,24 @@ module Puppetizer
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
 
+      # compile master installation?
+      if data.has_key?('compile_master') and data['compile_master'] == true
+        compile_master = true
+        if data.has_key?('mom') and ! data['mom'].empty?
+          mom = data['mom']
+        else
+          raise PuppetizerError "You must specify a mom when installing compile masters.  Please set mom=PUPPETMASTER_FQDN"
+        end
+
+        if data.has_key?('lb') and ! data['lb'].empty?
+          lb = data['lb']
+        else
+          lb = ''
+        end
+      else
+        compile_master = false
+      end
+
       # deploy code with code manager?
       if data.has_key?('deploy_code') and data['deploy_code'] == true
         deploy_code = true
@@ -252,7 +280,39 @@ module Puppetizer
       setup_csr_attributes(host, csr_attributes, data)
 
       # run the PE installer
-      ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
+      if compile_master
+        # install puppet agent as a CM
+        ssh(host, ERB.new(read_template(@@install_cm_template), nil, '-').result(binding))
+
+        # sign the cert on the mom
+        action_log("# --- begin run command on #{mom} ---")
+        ssh(mom, ERB.new(read_template(@@sign_cm_cert_template), nil, '-').result(binding))
+        action_log("# --- end run command on #{mom} ---")
+
+
+        # copy the classification script to the MOM and run it
+        script_path = "/tmp/#{@@classify_cm_script}"
+
+        action_log("# --- begin copy file to #{mom} ---")
+        scp(mom, resource_path(@@classify_cm_script), script_path)
+        action_log("# --- end copy file to #{mom} ---")
+
+
+        # pin the CM to the PE Masters group and set a load balancer address for
+        # pe_repo (if provided)
+        action_log("# --- begin run command on #{mom} ---")
+        ssh(mom, "#{user_start} #{script_path} #{host} #{lb} #{user_end}")
+        action_log("# --- end run command on #{mom} ---")
+
+        # Run puppet in the correct order
+        ssh(host, '/opt/puppetlabs/bin/puppet agent -t')
+        action_log("# --- begin run command on #{mom} ---")
+        ssh(mom, '/opt/puppetlabs/bin/puppet agent -t')
+        action_log("# --- end run command on #{mom} ---")
+      else
+        # full PE installation
+        ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
+      end
 
       # SCP up the agents if present
       upload_agent_installers(host)
@@ -266,7 +326,7 @@ module Puppetizer
       # run puppet to finalise configuration
       ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
 
-      if deploy_code
+      if deploy_code and ! compile_master
         setup_code_manager(host)
       end
     end
