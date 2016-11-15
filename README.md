@@ -190,6 +190,26 @@ bundle exec puppetizer puppetmasters
 bundle exec puppetizer agents
 ```
 
+## Inventory file format
+### Sections
+#### [puppetmasters]
+* These machines will be configured as Puppet Enterprise masters
+* One hostname per line, plus options
+
+##### Options
+* Any of the [pp_ options](https://docs.puppet.com/puppet/latest/reference/config_file_csr_attributes.html#puppet-specific-registered-ids), eg `pp_role=r_role::puppet::master`
+* `dns_alt_names` - List of DNS alternative names for this server, eg `dns_alt_names=puppet,pe-puppet,jeditemple`
+* `control_repo` - Control repo to setup code manager against, eg `control_repo=https://git.megacorp.com/puppet-control`
+* `compile_master` - Set true to install this server as a Puppet Enterprise [Compile Master](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work), eg `compile_master=true`
+
+
+#### [agents]
+* These machines will be configured as Puppet Enterprise agents by [downloading the installer from the master using curl](https://docs.puppet.com/pe/latest/install_agents.html#scenario-1-the-puppet-master-and-agent-have-same-os-and-architecture)
+* One hostname per line plus options
+
+##### Options
+* Any of the [pp_ options](https://docs.puppet.com/puppet/latest/reference/config_file_csr_attributes.html#puppet-specific-registered-ids), eg `pp_role=r_role::puppet::master`
+
 ## Developing
 After checking out the repo, run `bin/setup` to install dependencies. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
 
