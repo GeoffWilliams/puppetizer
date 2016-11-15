@@ -257,7 +257,7 @@ module Puppetizer
             raise PuppetizerError, "r10k_private_key not found at #{r10k_private_key_path}"
           end
         else
-          r10k_private_key_path = ''
+          r10k_private_key_path = false
         end
       end
 
