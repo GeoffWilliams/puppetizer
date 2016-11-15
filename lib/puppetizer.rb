@@ -350,8 +350,8 @@ module Puppetizer
 
         # fix permissions on key
         if r10k_private_key_path
-          ssh(host, "chown pe-puppet.pe-puppet #{@@puppet_r10k_key}")
-          ssh(host, "chmod 600 #{@@puppet_r10k_key}")
+          ssh(host, "#{user_start} chown pe-puppet.pe-puppet #{@@puppet_r10k_key} #{user_end}")
+          ssh(host, "#{user_start} chmod 600 #{@@puppet_r10k_key} #{user_end}")
         end
       end
 
