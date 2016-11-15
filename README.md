@@ -201,6 +201,7 @@ bundle exec puppetizer agents
 * `dns_alt_names` - List of DNS alternative names for this server, eg `dns_alt_names=puppet,pe-puppet,jeditemple`
 * `control_repo` - Control repo to setup code manager against, eg `control_repo=https://git.megacorp.com/puppet-control`
 * `compile_master` - Set true to install this server as a Puppet Enterprise [Compile Master](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work), eg `compile_master=true`
+* `mom` - The address of the Puppet Enterprise [Master of Masters](https://docs.puppet.com/pe/latest/install_multimaster.html#how-compile-masters-work) to use for this Compile Master (mandatory if `compile_master=true`)
 
 
 #### [agents]
