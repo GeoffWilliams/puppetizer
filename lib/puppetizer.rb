@@ -253,10 +253,14 @@ module Puppetizer
           # if we are using a loadblancer with pe_repo, we must use a VARIABLE
           # so that if there are regional/multiple loadbalancers we can pick the
           # right one.  later on, we will dump the loadbalancer name as an external
-          # fact (there's no suitable place in $trusted for it to live)
-          lb = '$puppet_load_balancer'
+          # fact (there's no suitable place in $trusted for it to live).
+          # note - we backslash the $ to prevent BASH from interpretting it when
+          # we call our ruby script with the value
+          lb_fact = '\$puppet_load_balancer'
+          lb_host = data['lb']
         else
-          lb = ''
+          lb_fact = ''
+          lb_host = ''
         end
       else
         compile_master = false
@@ -302,8 +306,8 @@ module Puppetizer
 
       # run the PE installer
       if compile_master
-        # create an external fact with the address of the load balancer
-        ssh(host, ERB.new(read_template(@@lb_external_fact_template), nil, '-').result(binding))
+        # create an external fact with the address of the load balancer on the MOM
+        ssh(mom, ERB.new(read_template(@@lb_external_fact_template), nil, '-').result(binding))
 
         # install puppet agent as a CM
         ssh(host, ERB.new(read_template(@@install_cm_template), nil, '-').result(binding))
@@ -328,7 +332,7 @@ module Puppetizer
         # pe_repo (if provided)
         action_log("# --- begin run command on #{mom} ---")
         ssh(mom, "chmod +x #{script_path}")
-        ssh(mom, "#{user_start} #{script_path} #{host} #{lb} #{user_end}")
+        ssh(mom, "#{user_start} #{script_path} #{host} #{lb_fact} #{user_end}")
         action_log("# --- end run command on #{mom} ---")
 
         # Run puppet in the correct order
