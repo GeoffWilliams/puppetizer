@@ -17,7 +17,7 @@ require 'puppetclassify'
 if ARGV.empty?
   abort("Must specify hostname to mark as a compile master")
 end
-compile_master = ARGV[0]
+compile_master = ARGV[0].downcase
 
 if ARGV.length == 2
   lb = ARGV[1]
@@ -27,7 +27,7 @@ end
 
 
 def initialize_puppetclassify
-  hostname = %x(facter fqdn).strip
+  hostname = %x(facter fqdn).strip.downcase
   port = 4433
 
   # Define the url to the classifier API
@@ -41,7 +41,7 @@ def initialize_puppetclassify
   # we can just use the internal dashboard certs for authentication
   ssl_dir     = '/etc/puppetlabs/puppet/ssl'
   ca_cert     = "#{ssl_dir}/ca/ca_crt.pem"
-  cert_name   = hostname
+  cert_name   = hostname.downcase
   cert        = "#{ssl_dir}/certs/#{cert_name}.pem"
   private_key = "#{ssl_dir}/private_keys/#{cert_name}.pem"
 
