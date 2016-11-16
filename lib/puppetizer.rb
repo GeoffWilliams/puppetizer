@@ -589,17 +589,6 @@ module Puppetizer
       ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
     end
 
-    def action_setup_r10k()
-      section_key = "puppetmasters"
-
-      if @myini.sections.include?(section_key)
-        section = @myini[section_key]
-        @myini[section_key].each do |host,v|
-          setup_r10k(host)
-        end
-      end
-    end
-
     def action_upload_agent_installers()
       section_key = "puppetmasters"
       if @myini.sections.include?(section_key)
