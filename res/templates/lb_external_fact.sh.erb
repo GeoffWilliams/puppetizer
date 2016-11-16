@@ -1,0 +1,3 @@
+<%= user_start %> mkdir -p /etc/puppetlabs/facter/facts.d <%= user_end %>
+<%= user_start %> bash -c 'echo puppet_load_balancer=<%= lb %> > \
+  /etc/puppetlabs/facter/facts.d/puppet_load_balancer.txt' <%= user_end %>

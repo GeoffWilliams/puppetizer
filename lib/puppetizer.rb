@@ -26,6 +26,7 @@ module Puppetizer
     @@setup_code_manager_template = './templates/setup_code_manager.sh.erb'
     @@offline_gem_template        = './templates/offline_gem.sh.erb'
     @@sign_cm_cert_template       = './templates/sign_cm_cert.sh.erb'
+    @@lb_external_fact_template   = './templates/lb_external_fact.sh.erb'
 
     @@classify_cm_script          = './scripts/classify_cm.rb'
 
@@ -249,7 +250,11 @@ module Puppetizer
         end
 
         if data.has_key?('lb') and ! data['lb'].empty?
-          lb = data['lb']
+          # if we are using a loadblancer with pe_repo, we must use a VARIABLE
+          # so that if there are regional/multiple loadbalancers we can pick the
+          # right one.  later on, we will dump the loadbalancer name as an external
+          # fact (there's no suitable place in $trusted for it to live)
+          lb = '$puppet_load_balancer'
         else
           lb = ''
         end
@@ -297,6 +302,9 @@ module Puppetizer
 
       # run the PE installer
       if compile_master
+        # create an external fact with the address of the load balancer
+        ssh(host, ERB.new(read_template(@@lb_external_fact_template), nil, '-').result(binding))
+
         # install puppet agent as a CM
         ssh(host, ERB.new(read_template(@@install_cm_template), nil, '-').result(binding))
 
