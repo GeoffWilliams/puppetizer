@@ -9,7 +9,7 @@ sed 's/"console_admin_password": ""/"console_admin_password": "<%= password %>"/
   <% if r10k_private_key_path -%>
     sed -i '$i"puppet_enterprise::profile::master::r10k_private_key": "<%= puppet_r10k_key %>"' pe.conf
   <% else -%>
-    sed -i '$i"# r10k_private_key not set in inventory' pe.conf
+    sed -i '$i# r10k_private_key not set in inventory' pe.conf
   <% end -%>
 <% else -%>
   sed -i '$i# deploy_code not set in inventory' pe.conf
