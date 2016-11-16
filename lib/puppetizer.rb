@@ -141,7 +141,12 @@ module Puppetizer
       Escort::Logger.output.puts message
       action_log('# ' + message)
 
-      puppetmaster = @options[:global][:commands][command_name][:options][:puppetmaster]
+      if data.has_key?('pm') and ! data['pm'].empty?
+        puppetmaster = data['pm']
+      else
+        raise Escort::UserError.new("must specify puppetmaster address for #{host} in inventory, eg pm=xxx.megacorp.com")
+      end
+
       user_start = @user_start
       user_end = @user_end
   #    challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
