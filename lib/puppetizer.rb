@@ -306,8 +306,8 @@ module Puppetizer
 
       # run the PE installer
       if compile_master
-        # create an external fact with the address of the load balancer on the MOM
-        ssh(mom, ERB.new(read_template(@@lb_external_fact_template), nil, '-').result(binding))
+        # create an external fact with the address of the load balancer on the host
+        ssh(host, ERB.new(read_template(@@lb_external_fact_template), nil, '-').result(binding))
 
         # install puppet agent as a CM
         ssh(host, ERB.new(read_template(@@install_cm_template), nil, '-').result(binding))
