@@ -318,11 +318,11 @@ module Puppetizer
 
         # Run puppet in the correct order
         Escort::Logger.output.puts "Running puppet on compile master: #{host}"
-        ssh(host, '/opt/puppetlabs/bin/puppet agent -t')
+        ssh(host, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}"")
 
         Escort::Logger.output.puts "Running puppet on MOM: #{mom}"
         action_log("# --- begin run command on #{mom} ---")
-        ssh(mom, '/opt/puppetlabs/bin/puppet agent -t')
+        ssh(mom, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}"")
         action_log("# --- end run command on #{mom} ---")
       else
         # full PE installation
