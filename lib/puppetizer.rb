@@ -287,6 +287,9 @@ module Puppetizer
 
       setup_csr_attributes(host, csr_attributes, data)
 
+      # SCP up the agents if present
+      upload_agent_installers(host)
+
       # run the PE installer
       if compile_master
         # install puppet agent as a CM
@@ -307,7 +310,6 @@ module Puppetizer
         action_log("# --- begin copy file to #{mom} ---")
         scp(mom, resource_path(@@classify_cm_script), script_path)
         action_log("# --- end copy file to #{mom} ---")
-
 
         # pin the CM to the PE Masters group and set a load balancer address for
         # pe_repo (if provided)
@@ -355,10 +357,8 @@ module Puppetizer
         end
       end
 
-      # SCP up the agents if present
-      upload_agent_installers(host)
-
-      # Upload the offline gems if present
+      # Upload the offline gems if present - must be done AFTER puppet install
+      # to obtain gem command
       upload_offline_gems(host)
 
       # post-install (gems) after we have uploaded any offline gems
