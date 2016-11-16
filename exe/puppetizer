@@ -86,6 +86,7 @@ Escort::App.create do |app|
       )
     end
 
+    # just setup r10k and exit
     command.command :setup_r10k do |command|
       command.summary "Setup R10K"
       command.description "Setup R10K by creating the r10k.yaml file"
@@ -93,6 +94,15 @@ Escort::App.create do |app|
         Puppetizer::Puppetizer.new(options, arguments).action_setup_r10k()
       end
     end
+
+    command.command :agent_installers do |command|
+      command.summary "Agent installers"
+      command.description "Upload any present agent installers"
+      command.action do |options, arguments|
+        Puppetizer::Puppetizer.new(options, arguments).action_upload_agent_installers()
+      end
+    end
+
 
   end
 

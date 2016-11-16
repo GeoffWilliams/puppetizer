@@ -599,6 +599,18 @@ module Puppetizer
         end
       end
     end
+
+    def action_upload_agent_installers()
+      section_key = "puppetmasters"
+
+      if @myini.sections.include?(section_key)
+        section = @myini[section_key]
+        @myini[section_key].each do |host,v|
+          upload_agent_installers(host)
+        end
+      end
+    end
+
   end
 
   class InventoryParser
