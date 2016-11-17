@@ -38,8 +38,12 @@ module Puppetizer
     @@puppet_r10k_key     = "#{@@puppet_r10k_ssh}/id-control_repo.rsa"
     @@inifile = 'inventory/hosts'
 
-    @@agent_local_path    = './agent_installers'
-    @@agent_upload_path   = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
+    @@agent_local_path          = './agent_installers'
+    @@agent_upload_path_normal  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
+    @@agent_upload_path_windows_x86 =
+      '/opt/puppetlabs/server/data/packages/public/2016.4.2/windows-i386-1.7.1/'
+    @@agent_upload_path_windows_x64 =
+      '/opt/puppetlabs/server/data/packages/public/2016.4.2/windows-x86_64-1.7.1'
     @@gem_local_path      = './gems'
 
     def initialize(options, arguments)
@@ -199,12 +203,22 @@ module Puppetizer
       user_end = @user_end
       if Dir.exists?(@@agent_local_path)
         # make sure the final location exists on puppet master
-        ssh(host, "#{user_start} mkdir -p #{@@agent_upload_path} #{user_end}")
+        ssh(host, "#{user_start} mkdir -p #{@@agent_upload_path_normal} #{@@agent_upload_path_windows_x86} #{@@agent_upload_path_windows_x64} #{user_end}")
         Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
             filename = @@agent_local_path + File::SEPARATOR + f
             scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
-            ssh(host, "#{user_start} cp /tmp/#{f} #{@@agent_upload_path} #{user_end}")
+
+            if f =~ /windows/
+              if f =~ /x86/
+                final_destination = @@agent_upload_path_windows_x86
+              else
+                final_destination = @@agent_upload_path_windows_x64
+              end
+            else
+              final_destination = @@agent_upload_path_normal
+            end
+            ssh(host, "#{user_start} cp /tmp/#{f} #{final_destination} #{user_end}")
           end
         }
       end
