@@ -94,6 +94,14 @@ Escort::App.create do |app|
       end
     end
 
+    command.command :upload_offline_gems do |command|
+      command.summary "Agent installers"
+      command.description "Upload any present agent installers"
+      command.action do |options, arguments|
+        Puppetizer::Puppetizer.new(options, arguments).action_upload_offline_gems()
+      end
+    end
+
 
   end
 

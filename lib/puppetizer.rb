@@ -616,6 +616,16 @@ module Puppetizer
       end
     end
 
+    def action_upload_offline_gems()
+      section_key = "puppetmasters"
+      if @myini.sections.include?(section_key)
+        @myini[section_key].each do |r|
+          hostname, csr_attributes, data = InventoryParser::parse(r)
+          upload_offline_gems(hostname)
+        end
+      end
+    end
+
   end
 
   class InventoryParser
