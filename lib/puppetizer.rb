@@ -209,7 +209,7 @@ module Puppetizer
             filename = @@agent_local_path + File::SEPARATOR + f
             scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
 
-            if f =~ /windows/
+            if f =~ /.msi/
               if f =~ /x86/
                 final_destination = @@agent_upload_path_windows_x86
               else
