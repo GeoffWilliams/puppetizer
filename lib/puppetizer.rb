@@ -105,7 +105,8 @@ module Puppetizer
           @user_start = 'sudo'
           @user_end = ''
         elsif @swap_user == 'su'
-          @user_start = 'su -c \''
+          # solaris/aix require the -u argument, also compatible with linux
+          @user_start = 'su -u root -c \''
           @user_end = '\''
         else
           raise Escort::UserError.new("Unsupported swap user method: #{@swap_user}")
@@ -124,7 +125,20 @@ module Puppetizer
         raise Escort::UserError.new("Inventory file not found at #{@@inifile}")
       end
 
+      # split the only_hosts list by on commas if present
+      if @options[:global][:options][:only_hosts] == nil or
+            @options[:global][:options][:only_hosts].empty?
+        @only_hosts = false
+      else
+        @only_hosts = @options[:global][:options][:only_hosts].downcase.split(',')
+      end
+
       @action_log = "./puppetizer_#{Time.now.iso8601}.log"
+    end
+
+    # login to host via SSH and get the uname
+    def uname(host)
+      return ssh(host, 'uname').strip.downcase
     end
 
     def action_log(message)
@@ -160,11 +174,14 @@ module Puppetizer
       message = "Installing puppet agent on #{host}"
       Escort::Logger.output.puts message
       action_log('# ' + message)
-
-      if data.has_key?('pm') and ! data['pm'].empty?
+      if @options[:global][:commands][:agents][:options][:puppetmaster]
+        puppetmaster = @options[:global][:commands][:agents][:options][:puppetmaster]
+      elsif data.has_key?('pm') and ! data['pm'].empty?
         puppetmaster = data['pm']
       else
-        raise Escort::UserError.new("must specify puppetmaster address for #{host} in inventory, eg pm=xxx.megacorp.com")
+        raise Escort::UserError.new(
+          "must specify puppetmaster address for #{host} in inventory file, "\
+          "eg pm=xxx.megacorp.com or on the commandline with --puppetmaster")
       end
 
       user_start = @user_start
@@ -172,7 +189,29 @@ module Puppetizer
   #    challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
   #    csr_attributes |= challenge_password
       setup_csr_attributes(host, csr_attributes, data)
-      ssh(host, ERB.new(read_template(@@install_puppet_template), nil, '-').result(binding))
+
+      if frictionless
+        ssh(host, ERB.new(read_template(@@install_puppet_template), nil, '-').result(binding))
+      else
+        install_puppet_scp(host, installer)
+      end
+    end
+
+    # manually install puppet over SCP without using curl, bash or wget for
+    # systems that dont have these tools - eg aix and solaris
+    def install_puppet_scp(host, installer)
+      user_start = @user_start
+      user_end = @user_end
+#!!! FIXME FIXME FIXME
+
+      # login to remote host, run uname to determine flavour
+
+      # copy correct installer
+
+      # install packages
+
+      scp()
+      aix rpm
     end
 
     def find_pe_tarball
@@ -569,63 +608,112 @@ module Puppetizer
     end
 
 
+    def puppetize_agent()
+      @myini['agents'].each do |r|
+        hostname, csr_attributes, data = InventoryParser::parse(r)
+        if should_process_host(hostname.downcase)
+          begin
+            install_puppet(hostname, csr_attributes, data)
+            processed_host(hostname)
+          rescue PuppetizerError => e
+            Escort::Logger.error.error e.message
+          end
+        end
+      end
 
-    # read the inventory
-    def puppetize(section_key)
-      if @myini.sections.include?(section_key)
-        section = @myini[section_key.downcase]
-        case section_key
-        when "puppetmasters"
-          @myini[section_key].each do |r|
-            hostname, csr_attributes, data = InventoryParser::parse(r)
-            begin
-              install_pe(hostname, csr_attributes, data)
-            rescue PuppetizerError => e
-              Escort::Logger.error.error e.message
-            end
+      if @only_hosts
+        @only_hosts.each do |hostname|
+          Escort::Logger.output.puts
+            "#{hostname} has no entry in inventory but installing as you have requested..."
+          begin
+            install_puppet(hostname)
+          rescue PuppetizerError => e
+            Escort::Logger.error.error e.message
           end
-        when "agents"
-          @myini[section_key].each do |r|
-            hostname, csr_attributes, data = InventoryParser::parse(r)
-            begin
-              install_puppet(hostname, csr_attributes, data)
-            rescue PuppetizerError => e
-              Escort::Logger.error.error e.message
-            end
-          end
+        end
+      end
+    end
+
+    def should_process_host(hostname)
+      if @only_hosts
+        if @only_hosts.include?(hostname.downcase)
+          process = true
         else
-          Escort::Logger.error.error "Unknown section: " + section
+          process = false
         end
       else
-        Escort::Logger.error.error "NO SUCH SECTION #{section}"
+        process = true
+      end
+
+      process
+    end
+
+    def processed_host(hostname)
+      @only_hosts.delete(hostname)
+    end
+
+    def puppetize_master()
+      @myini['puppetmasters'].each do |r|
+        hostname, csr_attributes, data = InventoryParser::parse(r)
+        if should_process_host(hostname)
+          begin
+            install_pe(hostname, csr_attributes, data)
+            processed_host(hostname)
+          rescue PuppetizerError => e
+            Escort::Logger.error.error e.message
+          end
+        end
+      end
+      if ! @only_hosts.empty?
+        Escort::Logger.error.error
+          "The following hosts were requested for installation but have no "\
+          "corresponding entry in the inventory file: #{@only_hosts}"
+      end
+    end
+
+    def print_status(hostname)
+      begin
+        print "host #{k} status: "
+        ssh(hostname, ERB.new(read_template(@@puppet_status_template), nil, '-').result(binding))
+      rescue PuppetizerError => e
+        Escort::Logger.error.error e.message
       end
     end
 
     def status()
       @myini.sections.each do |section|
-        @myini[section].each do |k|
-          print "host #{k} status: "
-          ssh(k, ERB.new(read_template(@@puppet_status_template), nil, '-').result(binding))
+        @myini[section].each do |r|
+          hostname, csr_attributes, data = InventoryParser::parse(r)
+          if should_process_host(hostname)
+            print_status(hostname)
+            processed_host(hostname)
+          end
+        end
+      end
+
+      if @only_hosts
+        @only_hosts.each do |hostname|
+          print_status(hostname)
         end
       end
     end
 
-    def setup_r10k(host)
-      Escort::Logger.output.puts "Setting up R10K on #{host}"
-      control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
-
-      contents = ERB.new(read_template(@@r10k_yaml_template), nil, '-').result(binding)
-      file = Tempfile.new('puppetizer')
-      file.sync = true
-      begin
-        file.write(contents)
-        scp(host, file.path, @@puppet_r10k_yaml)
-        ssh(host, ERB.new(read_template(@@run_r10k_template), nil, '-').result(binding))
-      ensure
-        file.close
-        file.unlink   # deletes the temp file
-      end
-    end
+    # def setup_r10k(host)
+    #   Escort::Logger.output.puts "Setting up R10K on #{host}"
+    #   control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
+    #
+    #   contents = ERB.new(read_template(@@r10k_yaml_template), nil, '-').result(binding)
+    #   file = Tempfile.new('puppetizer')
+    #   file.sync = true
+    #   begin
+    #     file.write(contents)
+    #     scp(host, file.path, @@puppet_r10k_yaml)
+    #     ssh(host, ERB.new(read_template(@@run_r10k_template), nil, '-').result(binding))
+    #   ensure
+    #     file.close
+    #     file.unlink   # deletes the temp file
+    #   end
+    # end
 
     def setup_code_manager(host)
       Escort::Logger.output.puts "Setting up Code Manager on #{host}"
@@ -640,6 +728,16 @@ module Puppetizer
       if @myini.sections.include?(section_key)
         @myini[section_key].each do |r|
           hostname, csr_attributes, data = InventoryParser::parse(r)
+          if should_process_host(hostname)
+            upload_agent_installers(hostname)
+          end
+        end
+      end
+
+      if @only_hosts
+        @only_hosts.each do |hostname|
+          Escort::Logger.output.puts
+            "#{hostname} has no entry in inventory but uploading agent installers as requested..."
           upload_agent_installers(hostname)
         end
       end
@@ -650,6 +748,16 @@ module Puppetizer
       if @myini.sections.include?(section_key)
         @myini[section_key].each do |r|
           hostname, csr_attributes, data = InventoryParser::parse(r)
+          if should_process_host(hostname)
+            upload_offline_gems(hostname)
+            processed_host(hostname)
+          end
+        end
+      end
+      if @only_hosts
+        @only_hosts.each do |hostname|
+          Escort::Logger.output.puts
+            "#{hostname} has no entry in inventory but uploading gems as requested..."
           upload_offline_gems(hostname)
         end
       end

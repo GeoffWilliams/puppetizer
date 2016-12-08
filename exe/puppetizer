@@ -36,6 +36,12 @@ Escort::App.create do |app|
         :long => '--swap-user',
         :type => :string,
         :default => 'sudo'
+
+      opts.opt(:only_hosts,
+        'only install process these hosts (comma delimited)',
+        :long     => '--only-hosts',
+        :type     => :string,
+      )
 #
 #    opts.opt :console_admin_password,
 #      'Initial console admin password',
@@ -61,7 +67,6 @@ Escort::App.create do |app|
         'Address of the puppetmaster',
         :long => '--puppetmaster',
         :type => :string,
-        :default => 'puppet.demo.internal'
       )
 
       opts.opt(:console_admin_password,
@@ -83,7 +88,7 @@ Escort::App.create do |app|
     command.summary "Install masters"
     command.description "Install Puppet Enterprise on all known puppetmaster nodes"
     command.action do |options, arguments|
-      Puppetizer::Puppetizer.new(options, arguments).puppetize('puppetmasters')
+      Puppetizer::Puppetizer.new(options, arguments).puppetize_master()
     end
     command.options do |opts|
       opts.opt(:console_admin_password,
@@ -98,6 +103,7 @@ Escort::App.create do |app|
         :type => :string,
         :default => 'https://github.com/GeoffWilliams/r10k-control/'
       )
+
     end
 
     command.command :agent_installers do |command|
@@ -123,7 +129,7 @@ Escort::App.create do |app|
     command.summary "Puppetize agents"
     command.description "Puppetize all known agent nodes with the frictionless installer"
     command.action do |options, arguments|
-      Puppetizer::Puppetizer.new(options, arguments).puppetize('agents')
+      Puppetizer::Puppetizer.new(options, arguments).puppetize_agent()
     end
 
     command.options do |opts|
@@ -132,7 +138,6 @@ Escort::App.create do |app|
         'Address of the puppetmaster',
         :long     => '--puppetmaster',
         :type     => :string,
-        :default  => 'puppet.demo.internal'
       )
 
       opts.opt(:challenge_password,
@@ -141,6 +146,7 @@ Escort::App.create do |app|
         :type     => :string,
         :default  => 'topsecret'
       )
+
     end
   end
 
