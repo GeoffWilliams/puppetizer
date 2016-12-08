@@ -44,6 +44,7 @@ module Puppetizer
     @@lb_external_fact_template   = './templates/lb_external_fact.sh.erb'
 
     @@classify_cm_script          = './scripts/classify_cm.rb'
+    @@platform_tag_script         = './scripts/platform_tag.sh'
 
     @@puppet_path         = '/opt/puppetlabs/puppet/bin'
     @@puppet_etc          = '/etc/puppetlabs/'
@@ -136,9 +137,9 @@ module Puppetizer
       @action_log = "./puppetizer_#{Time.now.iso8601}.log"
     end
 
-    # login to host via SSH and get the uname
-    def uname(host)
-      return ssh(host, 'uname').strip.downcase
+    # login to host via SSH and run a script to work out the platform tag
+    def platform_tag(hostname)
+      ssh(hostname, resource_read(@@platform_tag_script)).stdout.strip.downcase
     end
 
     def action_log(message)
@@ -156,7 +157,7 @@ module Puppetizer
         Escort::Logger.output.puts "Setting up CSR attributes on #{host}"
         f = Tempfile.new("puppetizer")
         begin
-          f << ERB.new(read_template(@@csr_attributes_template), nil, '-').result(binding)
+          f << ERB.new(resource_read(@@csr_attributes_template), nil, '-').result(binding)
           f.close
           csr_tmp = "/tmp/csr_attributes.yaml"
           scp(host, f.path, csr_tmp)
@@ -190,18 +191,24 @@ module Puppetizer
   #    csr_attributes |= challenge_password
       setup_csr_attributes(host, csr_attributes, data)
 
-      if frictionless
-        ssh(host, ERB.new(read_template(@@install_puppet_template), nil, '-').result(binding))
+      if @options[:global][:commands][:agents][:options][:alt_installer]
+        install_puppet_alt(host, data)
       else
-        install_puppet_scp(host, installer)
+        ssh(host, ERB.new(resource_read(@@install_puppet_template), nil, '-').result(binding))
       end
     end
 
     # manually install puppet over SCP without using curl, bash or wget for
     # systems that dont have these tools - eg aix and solaris
-    def install_puppet_scp(host, installer)
+    def install_puppet_alt(hostname, data)
       user_start = @user_start
       user_end = @user_end
+
+      platform_tag = platform_tag(hostname)
+      puts platform_tag
+
+      puts "***"
+abort(">>>>>>>>>>>>>>>>>>")
 #!!! FIXME FIXME FIXME
 
       # login to remote host, run uname to determine flavour
@@ -240,7 +247,7 @@ module Puppetizer
         File.dirname(File.expand_path(__FILE__)), "../res/#{resource}")
     end
 
-    def read_template(template)
+    def resource_read(template)
       # Override shipped templates with local ones if present
       if File.exist?(template)
         Escort::Logger.output.puts "Using local template #{template}"
@@ -295,7 +302,7 @@ module Puppetizer
         }
 
         if install_needed
-          ssh(host, ERB.new(read_template(@@offline_gem_template), nil, '-').result(binding))
+          ssh(host, ERB.new(resource_read(@@offline_gem_template), nil, '-').result(binding))
         end
       end
     end
@@ -375,16 +382,16 @@ module Puppetizer
       # run the PE installer
       if compile_master
         # create an external fact with the address of the load balancer on the host
-        ssh(host, ERB.new(read_template(@@lb_external_fact_template), nil, '-').result(binding))
+        ssh(host, ERB.new(resource_read(@@lb_external_fact_template), nil, '-').result(binding))
 
         # install puppet agent as a CM
-        ssh(host, ERB.new(read_template(@@install_cm_template), nil, '-').result(binding))
+        ssh(host, ERB.new(resource_read(@@install_cm_template), nil, '-').result(binding))
 
         # sign the cert on the mom
         Escort::Logger.output.puts "Waiting 5 seconds for CSR to arrive on MOM"
         sleep(5)
         action_log("# --- begin run command on #{mom} ---")
-        ssh(mom, ERB.new(read_template(@@sign_cm_cert_template), nil, '-').result(binding))
+        ssh(mom, ERB.new(resource_read(@@sign_cm_cert_template), nil, '-').result(binding))
         action_log("# --- end run command on #{mom} ---")
 
 
@@ -433,7 +440,7 @@ module Puppetizer
         end
 
         # run installation
-        ssh(host, ERB.new(read_template(@@install_pe_master_template), nil, '-').result(binding))
+        ssh(host, ERB.new(resource_read(@@install_pe_master_template), nil, '-').result(binding))
 
         # fix permissions on key
         if r10k_private_key_path
@@ -447,7 +454,7 @@ module Puppetizer
       upload_offline_gems(host)
 
       # post-install (gems) after we have uploaded any offline gems
-      ssh(host, ERB.new(read_template(@@pe_postinstall_template), nil, '-').result(binding))
+      ssh(host, ERB.new(resource_read(@@pe_postinstall_template), nil, '-').result(binding))
 
       # run puppet to finalise configuration
       ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
@@ -674,7 +681,7 @@ module Puppetizer
     def print_status(hostname)
       begin
         print "host #{k} status: "
-        ssh(hostname, ERB.new(read_template(@@puppet_status_template), nil, '-').result(binding))
+        ssh(hostname, ERB.new(resource_read(@@puppet_status_template), nil, '-').result(binding))
       rescue PuppetizerError => e
         Escort::Logger.error.error e.message
       end
@@ -702,13 +709,13 @@ module Puppetizer
     #   Escort::Logger.output.puts "Setting up R10K on #{host}"
     #   control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
     #
-    #   contents = ERB.new(read_template(@@r10k_yaml_template), nil, '-').result(binding)
+    #   contents = ERB.new(resource_read(@@r10k_yaml_template), nil, '-').result(binding)
     #   file = Tempfile.new('puppetizer')
     #   file.sync = true
     #   begin
     #     file.write(contents)
     #     scp(host, file.path, @@puppet_r10k_yaml)
-    #     ssh(host, ERB.new(read_template(@@run_r10k_template), nil, '-').result(binding))
+    #     ssh(host, ERB.new(resource_read(@@run_r10k_template), nil, '-').result(binding))
     #   ensure
     #     file.close
     #     file.unlink   # deletes the temp file
@@ -720,7 +727,7 @@ module Puppetizer
       user_start = @user_start
       user_end = @user_end
 
-      ssh(host, ERB.new(read_template(@@setup_code_manager_template), nil, '-').result(binding))
+      ssh(host, ERB.new(resource_read(@@setup_code_manager_template), nil, '-').result(binding))
     end
 
     def action_upload_agent_installers()

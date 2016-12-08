@@ -147,6 +147,13 @@ Escort::App.create do |app|
         :default  => 'topsecret'
       )
 
+      opts.opt(:alt_installer,
+        'Use alternate installation method:  SCP package and install it',
+        :long     => '--alt-installer',
+        :type     => :boolean,
+        :default  => false
+      )
+
     end
   end
 
