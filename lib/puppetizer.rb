@@ -26,6 +26,11 @@ require 'erb'
 require 'tempfile'
 require 'ruby-progressbar'
 require 'time'
+require 'puppetizer/alt_installer'
+require 'puppetizer/transport'
+require 'puppetizer/util'
+require 'puppetizer/log'
+require 'puppetizer/puppetizer_error'
 
 module Puppetizer
   class Puppetizer < ::Escort::ActionCommand::Base
@@ -44,7 +49,6 @@ module Puppetizer
     @@lb_external_fact_template   = './templates/lb_external_fact.sh.erb'
 
     @@classify_cm_script          = './scripts/classify_cm.rb'
-    @@platform_tag_script         = './scripts/platform_tag.sh'
 
     @@puppet_path         = '/opt/puppetlabs/puppet/bin'
     @@puppet_etc          = '/etc/puppetlabs/'
@@ -86,7 +90,7 @@ module Puppetizer
         auth_methods.push("password")
       end
 
-      @ssh_opts = {
+      ssh_opts = {
         :user               => @ssh_username,
         :auth_methods       => auth_methods,
         :operation_timeout  => 0,
@@ -94,7 +98,7 @@ module Puppetizer
       }
 
       if @user_password
-        @ssh_opts[:password] = @user_password
+        ssh_opts[:password] = @user_password
       end
 
       # if non-root, use sudo
@@ -134,18 +138,8 @@ module Puppetizer
         @only_hosts = @options[:global][:options][:only_hosts].downcase.split(',')
       end
 
-      @action_log = "./puppetizer_#{Time.now.iso8601}.log"
-    end
+      Transport::init(ssh_opts, @user_start)
 
-    # login to host via SSH and run a script to work out the platform tag
-    def platform_tag(hostname)
-      ssh(hostname, resource_read(@@platform_tag_script)).stdout.strip.downcase
-    end
-
-    def action_log(message)
-      File.open(@action_log, 'a') do |file|
-        file.write message + "\n"
-      end
     end
 
     def setup_csr_attributes(host, csr_attributes, data)
@@ -157,11 +151,11 @@ module Puppetizer
         Escort::Logger.output.puts "Setting up CSR attributes on #{host}"
         f = Tempfile.new("puppetizer")
         begin
-          f << ERB.new(resource_read(@@csr_attributes_template), nil, '-').result(binding)
+          f << ERB.new(Util::resource_read(@@csr_attributes_template), nil, '-').result(binding)
           f.close
           csr_tmp = "/tmp/csr_attributes.yaml"
-          scp(host, f.path, csr_tmp)
-          ssh(host,
+          Transport::scp(host, f.path, csr_tmp)
+          Transport::ssh(host,
             "#{user_start} mkdir -p #{@@puppet_confdir} #{user_end} && "\
             "#{user_start} mv #{csr_tmp} #{@@puppet_confdir}/csr_attributes.yaml #{user_end}")
         ensure
@@ -174,7 +168,7 @@ module Puppetizer
     def install_puppet(host, csr_attributes = false, data={})
       message = "Installing puppet agent on #{host}"
       Escort::Logger.output.puts message
-      action_log('# ' + message)
+      Log::action_log('# ' + message)
       if @options[:global][:commands][:agents][:options][:puppetmaster]
         puppetmaster = @options[:global][:commands][:agents][:options][:puppetmaster]
       elsif data.has_key?('pm') and ! data['pm'].empty?
@@ -192,33 +186,10 @@ module Puppetizer
       setup_csr_attributes(host, csr_attributes, data)
 
       if @options[:global][:commands][:agents][:options][:alt_installer]
-        install_puppet_alt(host, data)
+        AltInstaller::install_puppet(host, puppetmaster, data, user_start, user_end)
       else
-        ssh(host, ERB.new(resource_read(@@install_puppet_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(@@install_puppet_template), nil, '-').result(binding))
       end
-    end
-
-    # manually install puppet over SCP without using curl, bash or wget for
-    # systems that dont have these tools - eg aix and solaris
-    def install_puppet_alt(hostname, data)
-      user_start = @user_start
-      user_end = @user_end
-
-      platform_tag = platform_tag(hostname)
-      puts platform_tag
-
-      puts "***"
-abort(">>>>>>>>>>>>>>>>>>")
-#!!! FIXME FIXME FIXME
-
-      # login to remote host, run uname to determine flavour
-
-      # copy correct installer
-
-      # install packages
-
-      scp()
-      aix rpm
     end
 
     def find_pe_tarball
@@ -230,45 +201,18 @@ abort(">>>>>>>>>>>>>>>>>>")
       end
     end
 
-    def upload_needed(host, local_file, remote_file)
-      local_md5=%x{md5sum #{local_file}}.strip.split(/\s+/)[0]
-      remote_md5=ssh(host, "md5sum #{remote_file} 2>&1", true).stdout.strip.split(/\s+/)[0]
 
-      needed = local_md5 != remote_md5
-      if ! needed
-        Escort::Logger.output.puts "#{local_md5} #{File.basename(local_file)}"
-      end
-      return needed
-    end
-
-    # Return the absolute filename of a named resource in this gem
-    def resource_path(resource)
-      File.join(
-        File.dirname(File.expand_path(__FILE__)), "../res/#{resource}")
-    end
-
-    def resource_read(template)
-      # Override shipped templates with local ones if present
-      if File.exist?(template)
-        Escort::Logger.output.puts "Using local template #{template}"
-        template_file = template
-      else
-        template_file = File.join(
-          File.dirname(File.expand_path(__FILE__)), "../res/#{template}")
-      end
-      File.open(template_file, 'r') { |file| file.read }
-    end
 
     def upload_agent_installers(host)
       user_start = @user_start
       user_end = @user_end
       if Dir.exists?(@@agent_local_path)
         # make sure the final location exists on puppet master
-        ssh(host, "#{user_start} mkdir -p #{@@agent_upload_path_normal} #{@@agent_upload_path_windows_x86} #{@@agent_upload_path_windows_x64} #{user_end}")
+        Transport::ssh(host, "#{user_start} mkdir -p #{@@agent_upload_path_normal} #{@@agent_upload_path_windows_x86} #{@@agent_upload_path_windows_x64} #{user_end}")
         Dir.foreach(@@agent_local_path) { |f|
           if f != '.' and f != '..'
             filename = @@agent_local_path + File::SEPARATOR + f
-            scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
+            Transport::scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
 
             if f =~ /.msi/
               if f =~ /x86/
@@ -279,7 +223,7 @@ abort(">>>>>>>>>>>>>>>>>>")
             else
               final_destination = @@agent_upload_path_normal
             end
-            ssh(host, "#{user_start} cp /tmp/#{f} #{final_destination} #{user_end}")
+            Transport::ssh(host, "#{user_start} cp /tmp/#{f} #{final_destination} #{user_end}")
           end
         }
       end
@@ -292,17 +236,17 @@ abort(">>>>>>>>>>>>>>>>>>")
       install_needed = false
       local_cache = @@gem_local_path + File::SEPARATOR + 'cache'
       if Dir.exists?(local_cache)
-        ssh(host, "mkdir -p #{gem_cache_dir}")
+        Transport::ssh(host, "mkdir -p #{gem_cache_dir}")
         Dir.foreach(local_cache) { |f|
           if f != '.' and f != '..'
             filename = local_cache + File::SEPARATOR + f
-            scp(host, filename, gem_cache_dir + f, "Uploading " + f)
+            Transport::scp(host, filename, gem_cache_dir + f, "Uploading " + f)
             install_needed = true
           end
         }
 
         if install_needed
-          ssh(host, ERB.new(resource_read(@@offline_gem_template), nil, '-').result(binding))
+          Transport::ssh(host, ERB.new(Util::resource_read(@@offline_gem_template), nil, '-').result(binding))
         end
       end
     end
@@ -310,7 +254,7 @@ abort(">>>>>>>>>>>>>>>>>>")
     def install_pe(host, csr_attributes, data)
       message = "Installing Puppet Enterprise on #{host}"
       Escort::Logger.output.puts message
-      action_log('# ' + message)
+      Log::action_log('# ' + message)
 
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
@@ -382,42 +326,42 @@ abort(">>>>>>>>>>>>>>>>>>")
       # run the PE installer
       if compile_master
         # create an external fact with the address of the load balancer on the host
-        ssh(host, ERB.new(resource_read(@@lb_external_fact_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(@@lb_external_fact_template), nil, '-').result(binding))
 
         # install puppet agent as a CM
-        ssh(host, ERB.new(resource_read(@@install_cm_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(@@install_cm_template), nil, '-').result(binding))
 
         # sign the cert on the mom
         Escort::Logger.output.puts "Waiting 5 seconds for CSR to arrive on MOM"
         sleep(5)
-        action_log("# --- begin run command on #{mom} ---")
-        ssh(mom, ERB.new(resource_read(@@sign_cm_cert_template), nil, '-').result(binding))
-        action_log("# --- end run command on #{mom} ---")
+        Log::action_log("# --- begin run command on #{mom} ---")
+        Transport::ssh(mom, ERB.new(Util::resource_read(@@sign_cm_cert_template), nil, '-').result(binding))
+        Log::action_log("# --- end run command on #{mom} ---")
 
 
         # copy the classification script to the MOM and run it
         Escort::Logger.output.puts "Classifying #{host} as Compile Master"
         script_path = "/tmp/#{File.basename(@@classify_cm_script)}"
 
-        action_log("# --- begin copy file to #{mom} ---")
-        scp(mom, resource_path(@@classify_cm_script), script_path)
-        action_log("# --- end copy file to #{mom} ---")
+        Log::action_log("# --- begin copy file to #{mom} ---")
+        Transport::scp(mom, resource_path(@@classify_cm_script), script_path)
+        Log::action_log("# --- end copy file to #{mom} ---")
 
         # pin the CM to the PE Masters group and set a load balancer address for
         # pe_repo (if provided)
-        action_log("# --- begin run command on #{mom} ---")
-        ssh(mom, "chmod +x #{script_path}")
-        ssh(mom, "#{user_start} #{script_path} #{host} #{lb_fact} #{user_end}")
-        action_log("# --- end run command on #{mom} ---")
+        Log::action_log("# --- begin run command on #{mom} ---")
+        Transport::ssh(mom, "chmod +x #{script_path}")
+        Transport::ssh(mom, "#{user_start} #{script_path} #{host} #{lb_fact} #{user_end}")
+        Log::action_log("# --- end run command on #{mom} ---")
 
         # Run puppet in the correct order
         Escort::Logger.output.puts "Running puppet on compile master: #{host}"
-        ssh(host, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
+        Transport::ssh(host, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
 
         Escort::Logger.output.puts "Running puppet on MOM: #{mom}"
-        action_log("# --- begin run command on #{mom} ---")
-        ssh(mom, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
-        action_log("# --- end run command on #{mom} ---")
+        Log::action_log("# --- begin run command on #{mom} ---")
+        Transport::ssh(mom, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
+        Log::action_log("# --- end run command on #{mom} ---")
       else
         # full PE installation
 
@@ -425,27 +369,27 @@ abort(">>>>>>>>>>>>>>>>>>")
 
         # SCP the installer
         tarball = find_pe_tarball
-        scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
+        Transport::scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
 
         # copy r10k private key if needed
         if r10k_private_key_path
 
           # upload to /tmp
           temp_keyfile = "/tmp/#{File.basename(@@puppet_r10k_key)}"
-          scp(host, r10k_private_key_path, temp_keyfile)
+          Transport::scp(host, r10k_private_key_path, temp_keyfile)
 
           # make directory and move temp keyfile there
-          ssh(host, "#{user_start} mkdir -p #{@@puppet_r10k_ssh} #{user_end}")
-          ssh(host, "#{user_start} mv #{temp_keyfile} #{@@puppet_r10k_key} #{user_end}")
+          Transport::ssh(host, "#{user_start} mkdir -p #{@@puppet_r10k_ssh} #{user_end}")
+          Transport::ssh(host, "#{user_start} mv #{temp_keyfile} #{@@puppet_r10k_key} #{user_end}")
         end
 
         # run installation
-        ssh(host, ERB.new(resource_read(@@install_pe_master_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(@@install_pe_master_template), nil, '-').result(binding))
 
         # fix permissions on key
         if r10k_private_key_path
-          ssh(host, "#{user_start} chown pe-puppet.pe-puppet #{@@puppet_r10k_key} #{user_end}")
-          ssh(host, "#{user_start} chmod 600 #{@@puppet_r10k_key} #{user_end}")
+          Transport::ssh(host, "#{user_start} chown pe-puppet.pe-puppet #{@@puppet_r10k_key} #{user_end}")
+          Transport::ssh(host, "#{user_start} chmod 600 #{@@puppet_r10k_key} #{user_end}")
         end
       end
 
@@ -454,164 +398,16 @@ abort(">>>>>>>>>>>>>>>>>>")
       upload_offline_gems(host)
 
       # post-install (gems) after we have uploaded any offline gems
-      ssh(host, ERB.new(resource_read(@@pe_postinstall_template), nil, '-').result(binding))
+      Transport::ssh(host, ERB.new(Util::resource_read(@@pe_postinstall_template), nil, '-').result(binding))
 
       # run puppet to finalise configuration
-      ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
+      Transport::ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
 
       if deploy_code and ! compile_master
         setup_code_manager(host)
       end
 
       Escort::Logger.output.puts "Puppet Enterprise installation for #{host} completed"
-    end
-
-    def defrag_line(d, channel, no_print)
-      # The sudo prompt doesn't have a newline at the end so the main stream
-      # reading code never catches it, lets capture it here...
-      # based on: http://stackoverflow.com/a/4235463
-      if d =~ /^\[sudo\] password for #{@ssh_username}:/ or d =~ /Password:/
-        if @swap_user == 'sudo'
-          if @user_password
-            # send password
-            channel.send_data @user_password
-
-            # don't forget to press enter :)
-            channel.send_data "\n"
-          else
-            raise PuppetizerError, "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
-          end
-        elsif @swap_user == 'su'
-          if @root_password
-            # send password
-            channel.send_data @root_password
-            channel.send_data "\n"
-          else
-            raise PuppetizerError, "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
-          end
-        end
-      end
-
-      # read the input line-wise (it *will* arrive fragmented!)
-      (@buf ||= '') << d
-      while line = @buf.slice!(/(.*)\r?\n/)
-        if ! no_print
-          Escort::Logger.output.puts line.strip #=> "hello stderr"
-        end
-      end
-    end
-
-    def port_open?(ip, port)
-      begin
-        Timeout::timeout(1) do
-          begin
-            s = TCPSocket.new(ip, port)
-            s.close
-            return true
-          rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError
-            return false
-          end
-        end
-      rescue Timeout::Error
-      end
-
-      return false
-    end
-
-    def scp(host, local_file, remote_file, job_name='Upload data')
-      if port_open?(host,22)
-        if upload_needed(host, local_file, remote_file)
-          action_log("scp #{local_file} to #{host}:#{remote_file}")
-          busy_spinner = BusySpinner.new
-          begin
-            # local variables are visible in instance-eval but instance ones are not...
-            # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
-            ssh_opts = @ssh_opts
-            progressbar = ProgressBar.create(:title => job_name)
-            Net::SSH::Simple.sync do
-              scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
-                #Escort::Logger.output.puts "Bytes uploaded: #{sent} of #{total}"
-
-                # for some reason, sent bytes is too high when we are sending to
-                # AWS over a slow link.  I don't know if its because they bytes
-                # are in-flight or if its just because of bug in net-scp but
-                # pulsing the progress bar to let user know that status is now
-                # unknown/finishing
-                if sent==total
-                  t = Thread.new { busy_spinner.run }
-                  t.abort_on_exception = true
-                else
-                  percent_complete = (sent/total.to_f) * 100
-                  progressbar.progress=(percent_complete)
-                end
-              end
-            end
-            # control returns here
-            if busy_spinner
-              busy_spinner.stop
-            end
-
-          rescue Net::SSH::Simple::Error => e
-            if e.message =~ /AuthenticationFailed/
-              error_message = "Authentication failed for #{ssh_opts[:user]}@#{host}, key loaded?"
-            else
-              error_message = 'no'#e.message
-            end
-            raise PuppetizerError, error_message
-          end
-        end
-      else
-        raise PuppetizerError, "host #{host} not responding to SSH"
-      end
-    end
-
-    def ssh(host, cmd, no_print=false, no_capture=false)
-      action_log(cmd)
-      user_start = @user_start
-      request_pty = ! @user_start.empty?
-      if port_open?(host,22)
-        begin
-          ssh_opts = @ssh_opts
-          r = Net::SSH::Simple.sync do
-            ssh(host, cmd, ssh_opts, request_pty) do |e,c,d|
-              case e
-                when :start
-                  #puts "CONNECTED"
-                when :stdout, :stderr
-                  defrag_line(d,c,no_print)
-                  if no_capture
-                    :no_append
-                  end
-                # :exit_code is triggered when the remote process exits normally.
-                # it does *not* trigger when the remote process exits by signal!
-                when :exit_code
-                  #puts d #=> 0
-
-                # :exit_signal is triggered when the remote is killed by signal.
-                # this would normally raise a Net::SSH::Simple::Error but
-                # we suppress that here by returning :no_raise
-                when :exit_signal
-                  #puts d  # won't fire in this example, could be "TERM"
-                  :no_raise
-
-                  # :finish triggers after :exit_code when the command exits normally.
-                   # it does *not* trigger when the remote process exits by signal!
-                when :finish
-                  #puts "we are finished!"
-              end
-            end
-          end
-        rescue Net::SSH::Simple::Error => e
-          if e.message =~ /AuthenticationFailed/
-            error_message = "Authentication failed for #{ssh_opts[:user]}@#{host}, key loaded?"
-          else
-            error_message = e.message
-          end
-          raise PuppetizerError, error_message
-        end
-      else
-        raise PuppetizerError, "host #{host} not responding to SSH"
-      end
     end
 
 
@@ -656,7 +452,9 @@ abort(">>>>>>>>>>>>>>>>>>")
     end
 
     def processed_host(hostname)
-      @only_hosts.delete(hostname)
+      if @only_hosts
+        @only_hosts.delete(hostname)
+      end
     end
 
     def puppetize_master()
@@ -680,8 +478,8 @@ abort(">>>>>>>>>>>>>>>>>>")
 
     def print_status(hostname)
       begin
-        print "host #{k} status: "
-        ssh(hostname, ERB.new(resource_read(@@puppet_status_template), nil, '-').result(binding))
+        print "host #{hostname} status: "
+        Transport::ssh(hostname, ERB.new(Util::resource_read(@@puppet_status_template), nil, '-').result(binding))
       rescue PuppetizerError => e
         Escort::Logger.error.error e.message
       end
@@ -705,29 +503,12 @@ abort(">>>>>>>>>>>>>>>>>>")
       end
     end
 
-    # def setup_r10k(host)
-    #   Escort::Logger.output.puts "Setting up R10K on #{host}"
-    #   control_repo = @options[:global][:commands][command_context[0]][:options][:control_repo]
-    #
-    #   contents = ERB.new(resource_read(@@r10k_yaml_template), nil, '-').result(binding)
-    #   file = Tempfile.new('puppetizer')
-    #   file.sync = true
-    #   begin
-    #     file.write(contents)
-    #     scp(host, file.path, @@puppet_r10k_yaml)
-    #     ssh(host, ERB.new(resource_read(@@run_r10k_template), nil, '-').result(binding))
-    #   ensure
-    #     file.close
-    #     file.unlink   # deletes the temp file
-    #   end
-    # end
-
     def setup_code_manager(host)
       Escort::Logger.output.puts "Setting up Code Manager on #{host}"
       user_start = @user_start
       user_end = @user_end
 
-      ssh(host, ERB.new(resource_read(@@setup_code_manager_template), nil, '-').result(binding))
+      Transport::ssh(host, ERB.new(Util::resource_read(@@setup_code_manager_template), nil, '-').result(binding))
     end
 
     def action_upload_agent_installers()
@@ -826,28 +607,6 @@ abort(">>>>>>>>>>>>>>>>>>")
         end
       end
       return hostname, csr_attributes, hash
-    end
-
-  end
-
-  # Make our own exception so that we know we threw it and can proceed
-  class PuppetizerError  < StandardError
-  end
-
-  class BusySpinner
-
-    def stop
-      @running = false
-    end
-
-    def run
-      @running = true
-      progressbar = ProgressBar.create(:total=> nil, :title=>'finishing')
-
-      while @running
-        progressbar.increment
-        sleep(0.2)
-      end
     end
 
   end
