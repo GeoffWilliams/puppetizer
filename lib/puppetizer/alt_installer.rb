@@ -16,24 +16,26 @@
 require 'puppetizer/util'
 require 'puppetizer/transport'
 require 'puppetizer'
+require 'escort'
+require 'erb'
+
 module Puppetizer::AltInstaller
   Transport = ::Puppetizer::Transport
   Util = ::Puppetizer::Util
 
-  @@agent_cache = "./agent_repos_cache"
-  @@puppet_conf = "/etc/puppetlabs/puppet/puppet.conf"
-
-  @@platform_tag_script         = './scripts/platform_tag.sh'
-  @@puppet_conf_template        = './templates/puppet.conf.erb'
+  AGENT_CACHE                 = "./agent_repos_cache"
+  PLATFORM_TAG_SCRIPT         = './scripts/platform_tag.sh'
+  ENABLE_PUPPET_SCRIPT        = './scripts/alt_install_enable_puppet.sh'
+  PUPPET_CONF_TEMPLATE        = './templates/puppet.conf.erb'
 
   # login to host via SSH and run a script to work out the platform tag
   def self.platform_tag(hostname)
-    Transport::ssh(hostname, Puppetizer::Util::resource_read(@@platform_tag_script)).stdout.strip.downcase
+    Transport::ssh(hostname, Puppetizer::Util::resource_read(PLATFORM_TAG_SCRIPT)).stdout.strip.downcase
   end
 
   def self.extract_agent(platform_tag)
-    if ! Dir.exists?(@@agent_cache)
-      Dir.mkdir(@@agent_cache)
+    if ! Dir.exists?(AGENT_CACHE)
+      Dir.mkdir(AGENT_CACHE)
     end
     # Target listings for all supported platforms (aix,solaris,rhel) eg:
     #   repos/solaris/10/PC1/puppet-agent-1.7.1-1.i386.pkg.gz
@@ -49,7 +51,7 @@ module Puppetizer::AltInstaller
     pattern = "*/#{package_glob}"
     install_dir = Dir.pwd
     target = nil
-    Dir.chdir(@@agent_cache) do
+    Dir.chdir(AGENT_CACHE) do
       repo_dirs = platform_tag.split('-')
       extract_dir = "repos/#{repo_dirs[0]}/#{repo_dirs[1]}/PC1/#{repo_dirs[2]}"
       extract_glob = "#{extract_dir}/#{package_glob}"
@@ -73,13 +75,13 @@ module Puppetizer::AltInstaller
     Escort::Logger.output.puts "Setting up puppet.conf file on #{hostname}"
     f = Tempfile.new("puppetizer")
     begin
-      f << ERB.new(Util::resource_read(@@puppet_conf_template), nil, '-').result(binding)
+      f << ERB.new(Util::resource_read(PUPPET_CONF_TEMPLATE), nil, '-').result(binding)
       f.close
       puppet_conf_tmp = "/tmp/puppet.conf"
       Transport::scp(hostname, f.path, puppet_conf_tmp)
       Transport::ssh(hostname,
-        "#{user_start} mkdir -p #{Puppetizer::Puppetizer.puppet_confdir} #{user_end} && "\
-        "#{user_start} mv #{puppet_conf_tmp} #{Puppetizer::Puppetizer.puppet_confdir}/puppet.conf #{user_end}")
+        "#{user_start} mkdir -p #{Puppetizer::PUPPET_CONFDIR} #{user_end} && "\
+        "#{user_start} mv #{puppet_conf_tmp} #{Puppetizer::PUPPET_CONFDIR}/puppet.conf #{user_end}")
     ensure
       f.close
       f.unlink
@@ -100,11 +102,26 @@ module Puppetizer::AltInstaller
 
     # copy correct installer
     package_file = extract_agent(platform_tag)
-    Transport::scp(hostname, package_file, "/tmp/#{File.basename(package_file)}")
+    agent_installer_file = "/tmp/#{File.basename(package_file)}"
+    Transport::scp(hostname, package_file, agent_installer_file)
 
     # puppet.conf
     ensure_puppet_conf(hostname, puppetmaster, certname, user_start, user_end)
 
     # install packages
+    case platform_tag
+    when /^el/, /^solaris/, /^aix/
+      install_script_res = "./templates/alt_install_#{platform_tag.split('-')[0]}.sh.erb"
+      install_script = ERB.new(Util::resource_read(install_script_res), nil, '-').result(binding)
+
+      # packages
+      Transport::ssh(hostname, install_script)
+
+      # use puppet to enable the services
+      Transport::ssh(hostname, Util::resource_read(ENABLE_PUPPET_SCRIPT))
+    else
+      raise Escort::UserError.new(
+        "No support for #{platform_tag} in the alt_installer yet (ticket?)")
+    end
   end
 end

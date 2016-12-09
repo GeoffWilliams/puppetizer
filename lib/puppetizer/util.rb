@@ -21,16 +21,16 @@ module Puppetizer::Util
       File.dirname(File.expand_path(__FILE__)), "../../res/#{resource}")
   end
 
-  def self.resource_read(template)
+  def self.resource_read(res)
     # Override shipped templates with local ones if present
-    if File.exist?(template)
-      Escort::Logger.output.puts "Using local template #{template}"
-      template_file = template
+    if File.exist?(res)
+      Escort::Logger.output.puts "Using local template #{res}"
+      res_file = res
     else
-      template_file = File.join(
-        File.dirname(File.expand_path(__FILE__)), "../../res/#{template}")
+      res_file = File.join(
+        File.dirname(File.expand_path(__FILE__)), "../../res/#{res}")
     end
-    File.open(template_file, 'r') { |file| file.read }
+    File.open(res_file, 'r') { |file| file.read }
   end
 
 end
