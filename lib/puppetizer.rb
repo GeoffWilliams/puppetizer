@@ -33,38 +33,37 @@ require 'puppetizer/log'
 require 'puppetizer/puppetizer_error'
 
 module Puppetizer
+  INSTALL_PUPPET_TEMPLATE     = './templates/install_puppet.sh.erb'
+  INSTALL_PE_MASTER_TEMPLATE  = './templates/install_pe_master.sh.erb'
+  INSTALL_CM_TEMPLATE         = './templates/install_cm.sh.erb'
+  PE_POSTINSTALL_TEMPLATE     = './templates/pe_postinstall.sh.erb'
+  PUPPET_STATUS_TEMPLATE      = './templates/puppet_status.sh.erb'
+  CSR_ATTRIBUTES_TEMPLATE     = './templates/csr_attributes.yaml.erb'
+  SETUP_CODE_MANAGER_TEMPLATE = './templates/setup_code_manager.sh.erb'
+  OFFLINE_GEM_TEMPLATE        = './templates/offline_gem.sh.erb'
+  SIGN_CM_CERT_TEMPLATE       = './templates/sign_cm_cert.sh.erb'
+  LB_EXTERNAL_FACT_TEMPLATE   = './templates/lb_external_fact.sh.erb'
+
+  CLASSIFY_CM_SCRIPT          = './scripts/classify_cm.rb'
+
+  PUPPET_PATH         = '/opt/puppetlabs/puppet/bin'
+  PUPPET_ETC          = '/etc/puppetlabs/'
+  PUPPET_CONFDIR      = "#{PUPPET_ETC}/puppet"
+  PUPPET_R10K_SSH     = "#{PUPPET_ETC}/puppetserver/ssh"
+  PUPPET_R10K_KEY     = "#{PUPPET_R10K_SSH}/id-control_repo.rsa"
+  INVENTORY_FILE = 'inventory/hosts'
+
+  AGENT_LOCAL_PATH          = './agent_installers'
+  AGENT_UPLOAD_PATH_NORMAL  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
+  AGENT_UPLOAD_PATH_WINDOWS_X86 =
+    '/opt/puppetlabs/server/data/packages/public/2016.4.2/windows-i386-1.7.1/'
+  AGENT_UPLOAD_PATH_WINDOWS_X64 =
+    '/opt/puppetlabs/server/data/packages/public/2016.4.2/windows-x86_64-1.7.1'
+  GEM_LOCAL_PATH      = './gems'
+
   class Puppetizer < ::Escort::ActionCommand::Base
 
-    @@install_puppet_template     = './templates/install_puppet.sh.erb'
-    @@install_pe_master_template  = './templates/install_pe_master.sh.erb'
-    @@install_cm_template         = './templates/install_cm.sh.erb'
-    @@pe_postinstall_template     = './templates/pe_postinstall.sh.erb'
-    @@puppet_status_template      = './templates/puppet_status.sh.erb'
-    @@r10k_yaml_template          = './templates/r10k.yaml.erb'
-    @@run_r10k_template           = './templates/run_r10k.sh.erb'
-    @@csr_attributes_template     = './templates/csr_attributes.yaml.erb'
-    @@setup_code_manager_template = './templates/setup_code_manager.sh.erb'
-    @@offline_gem_template        = './templates/offline_gem.sh.erb'
-    @@sign_cm_cert_template       = './templates/sign_cm_cert.sh.erb'
-    @@lb_external_fact_template   = './templates/lb_external_fact.sh.erb'
 
-    @@classify_cm_script          = './scripts/classify_cm.rb'
-
-    @@puppet_path         = '/opt/puppetlabs/puppet/bin'
-    @@puppet_etc          = '/etc/puppetlabs/'
-    @@puppet_confdir      = "#{@@puppet_etc}/puppet"
-    @@puppet_r10k_yaml    = "#{@@puppet_etc}/r10k/r10k.yaml"
-    @@puppet_r10k_ssh     = "#{@@puppet_etc}/puppetserver/ssh"
-    @@puppet_r10k_key     = "#{@@puppet_r10k_ssh}/id-control_repo.rsa"
-    @@inifile = 'inventory/hosts'
-
-    @@agent_local_path          = './agent_installers'
-    @@agent_upload_path_normal  = '/opt/puppetlabs/server/data/staging/pe_repo-puppet-agent-1.7.1/'
-    @@agent_upload_path_windows_x86 =
-      '/opt/puppetlabs/server/data/packages/public/2016.4.2/windows-i386-1.7.1/'
-    @@agent_upload_path_windows_x64 =
-      '/opt/puppetlabs/server/data/packages/public/2016.4.2/windows-x86_64-1.7.1'
-    @@gem_local_path      = './gems'
 
     def initialize(options, arguments)
       @options = options
@@ -124,10 +123,10 @@ module Puppetizer
         end
       end
 
-      if File.exists?(@@inifile)
+      if File.exists?(INVENTORY_FILE)
         @myini = IniStyle.new('inventory/hosts')
       else
-        raise Escort::UserError.new("Inventory file not found at #{@@inifile}")
+        raise Escort::UserError.new("Inventory file not found at #{INVENTORY_FILE}")
       end
 
       # split the only_hosts list by on commas if present
@@ -151,13 +150,13 @@ module Puppetizer
         Escort::Logger.output.puts "Setting up CSR attributes on #{host}"
         f = Tempfile.new("puppetizer")
         begin
-          f << ERB.new(Util::resource_read(@@csr_attributes_template), nil, '-').result(binding)
+          f << ERB.new(Util::resource_read(CSR_ATTRIBUTES_TEMPLATE), nil, '-').result(binding)
           f.close
           csr_tmp = "/tmp/csr_attributes.yaml"
           Transport::scp(host, f.path, csr_tmp)
           Transport::ssh(host,
-            "#{user_start} mkdir -p #{@@puppet_confdir} #{user_end} && "\
-            "#{user_start} mv #{csr_tmp} #{@@puppet_confdir}/csr_attributes.yaml #{user_end}")
+            "#{user_start} mkdir -p #{PUPPET_CONFDIR} #{user_end} && "\
+            "#{user_start} mv #{csr_tmp} #{PUPPET_CONFDIR}/csr_attributes.yaml #{user_end}")
         ensure
           f.close
           f.unlink
@@ -188,7 +187,7 @@ module Puppetizer
       if @options[:global][:commands][:agents][:options][:alt_installer]
         AltInstaller::install_puppet(host, puppetmaster, data, user_start, user_end)
       else
-        Transport::ssh(host, ERB.new(Util::resource_read(@@install_puppet_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
       end
     end
 
@@ -206,22 +205,22 @@ module Puppetizer
     def upload_agent_installers(host)
       user_start = @user_start
       user_end = @user_end
-      if Dir.exists?(@@agent_local_path)
+      if Dir.exists?(AGENT_LOCAL_PATH)
         # make sure the final location exists on puppet master
-        Transport::ssh(host, "#{user_start} mkdir -p #{@@agent_upload_path_normal} #{@@agent_upload_path_windows_x86} #{@@agent_upload_path_windows_x64} #{user_end}")
-        Dir.foreach(@@agent_local_path) { |f|
+        Transport::ssh(host, "#{user_start} mkdir -p #{AGENT_UPLOAD_PATH_NORMAL} #{AGENT_UPLOAD_PATH_WINDOWS_X86} #{AGENT_UPLOAD_PATH_WINDOWS_X64} #{user_end}")
+        Dir.foreach(AGENT_LOCAL_PATH) { |f|
           if f != '.' and f != '..'
-            filename = @@agent_local_path + File::SEPARATOR + f
+            filename = AGENT_LOCAL_PATH + File::SEPARATOR + f
             Transport::scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
 
             if f =~ /.msi/
               if f =~ /x86/
-                final_destination = @@agent_upload_path_windows_x86
+                final_destination = AGENT_UPLOAD_PATH_WINDOWS_X86
               else
-                final_destination = @@agent_upload_path_windows_x64
+                final_destination = AGENT_UPLOAD_PATH_WINDOWS_X64
               end
             else
-              final_destination = @@agent_upload_path_normal
+              final_destination = AGENT_UPLOAD_PATH_NORMAL
             end
             Transport::ssh(host, "#{user_start} cp /tmp/#{f} #{final_destination} #{user_end}")
           end
@@ -234,7 +233,7 @@ module Puppetizer
       user_end = @user_end
       gem_cache_dir = '/tmp/gems/'
       install_needed = false
-      local_cache = @@gem_local_path + File::SEPARATOR + 'cache'
+      local_cache = GEM_LOCAL_PATH + File::SEPARATOR + 'cache'
       if Dir.exists?(local_cache)
         Transport::ssh(host, "mkdir -p #{gem_cache_dir}")
         Dir.foreach(local_cache) { |f|
@@ -246,7 +245,7 @@ module Puppetizer
         }
 
         if install_needed
-          Transport::ssh(host, ERB.new(Util::resource_read(@@offline_gem_template), nil, '-').result(binding))
+          Transport::ssh(host, ERB.new(Util::resource_read(OFFLINE_GEM_TEMPLATE), nil, '-').result(binding))
         end
       end
     end
@@ -326,25 +325,25 @@ module Puppetizer
       # run the PE installer
       if compile_master
         # create an external fact with the address of the load balancer on the host
-        Transport::ssh(host, ERB.new(Util::resource_read(@@lb_external_fact_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(LB_EXTERNAL_FACT_TEMPLATE), nil, '-').result(binding))
 
         # install puppet agent as a CM
-        Transport::ssh(host, ERB.new(Util::resource_read(@@install_cm_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(INSTALL_CM_TEMPLATE), nil, '-').result(binding))
 
         # sign the cert on the mom
         Escort::Logger.output.puts "Waiting 5 seconds for CSR to arrive on MOM"
         sleep(5)
         Log::action_log("# --- begin run command on #{mom} ---")
-        Transport::ssh(mom, ERB.new(Util::resource_read(@@sign_cm_cert_template), nil, '-').result(binding))
+        Transport::ssh(mom, ERB.new(Util::resource_read(SIGN_CM_CERT_TEMPLATE), nil, '-').result(binding))
         Log::action_log("# --- end run command on #{mom} ---")
 
 
         # copy the classification script to the MOM and run it
         Escort::Logger.output.puts "Classifying #{host} as Compile Master"
-        script_path = "/tmp/#{File.basename(@@classify_cm_script)}"
+        script_path = "/tmp/#{File.basename(CLASSIFY_CM_SCRIPT)}"
 
         Log::action_log("# --- begin copy file to #{mom} ---")
-        Transport::scp(mom, resource_path(@@classify_cm_script), script_path)
+        Transport::scp(mom, resource_path(CLASSIFY_CM_SCRIPT), script_path)
         Log::action_log("# --- end copy file to #{mom} ---")
 
         # pin the CM to the PE Masters group and set a load balancer address for
@@ -365,7 +364,7 @@ module Puppetizer
       else
         # full PE installation
 
-        puppet_r10k_key = @@puppet_r10k_key
+        puppet_r10k_key = PUPPET_R10K_KEY
 
         # SCP the installer
         tarball = find_pe_tarball
@@ -375,21 +374,21 @@ module Puppetizer
         if r10k_private_key_path
 
           # upload to /tmp
-          temp_keyfile = "/tmp/#{File.basename(@@puppet_r10k_key)}"
+          temp_keyfile = "/tmp/#{File.basename(PUPPET_R10K_KEY)}"
           Transport::scp(host, r10k_private_key_path, temp_keyfile)
 
           # make directory and move temp keyfile there
-          Transport::ssh(host, "#{user_start} mkdir -p #{@@puppet_r10k_ssh} #{user_end}")
-          Transport::ssh(host, "#{user_start} mv #{temp_keyfile} #{@@puppet_r10k_key} #{user_end}")
+          Transport::ssh(host, "#{user_start} mkdir -p #{PUPPET_R10K_SSH} #{user_end}")
+          Transport::ssh(host, "#{user_start} mv #{temp_keyfile} #{PUPPET_R10K_KEY} #{user_end}")
         end
 
         # run installation
-        Transport::ssh(host, ERB.new(Util::resource_read(@@install_pe_master_template), nil, '-').result(binding))
+        Transport::ssh(host, ERB.new(Util::resource_read(INSTALL_PE_MASTER_TEMPLATE), nil, '-').result(binding))
 
         # fix permissions on key
         if r10k_private_key_path
-          Transport::ssh(host, "#{user_start} chown pe-puppet.pe-puppet #{@@puppet_r10k_key} #{user_end}")
-          Transport::ssh(host, "#{user_start} chmod 600 #{@@puppet_r10k_key} #{user_end}")
+          Transport::ssh(host, "#{user_start} chown pe-puppet.pe-puppet #{PUPPET_R10K_KEY} #{user_end}")
+          Transport::ssh(host, "#{user_start} chmod 600 #{PUPPET_R10K_KEY} #{user_end}")
         end
       end
 
@@ -398,10 +397,10 @@ module Puppetizer
       upload_offline_gems(host)
 
       # post-install (gems) after we have uploaded any offline gems
-      Transport::ssh(host, ERB.new(Util::resource_read(@@pe_postinstall_template), nil, '-').result(binding))
+      Transport::ssh(host, ERB.new(Util::resource_read(PE_POSTINSTALL_TEMPLATE), nil, '-').result(binding))
 
       # run puppet to finalise configuration
-      Transport::ssh(host, "#{user_start} #{@@puppet_path}/puppet agent -t #{user_end} ")
+      Transport::ssh(host, "#{user_start} #{PUPPET_PATH}/puppet agent -t #{user_end} ")
 
       if deploy_code and ! compile_master
         setup_code_manager(host)
@@ -479,7 +478,7 @@ module Puppetizer
     def print_status(hostname)
       begin
         print "host #{hostname} status: "
-        Transport::ssh(hostname, ERB.new(Util::resource_read(@@puppet_status_template), nil, '-').result(binding))
+        Transport::ssh(hostname, ERB.new(Util::resource_read(PUPPET_STATUS_TEMPLATE), nil, '-').result(binding))
       rescue PuppetizerError => e
         Escort::Logger.error.error e.message
       end
@@ -508,7 +507,7 @@ module Puppetizer
       user_start = @user_start
       user_end = @user_end
 
-      Transport::ssh(host, ERB.new(Util::resource_read(@@setup_code_manager_template), nil, '-').result(binding))
+      Transport::ssh(host, ERB.new(Util::resource_read(SETUP_CODE_MANAGER_TEMPLATE), nil, '-').result(binding))
     end
 
     def action_upload_agent_installers()
