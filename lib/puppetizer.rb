@@ -67,37 +67,13 @@ module Puppetizer
 
   class Puppetizer < ::Escort::ActionCommand::Base
 
-
-
     def initialize(options, arguments)
       @options = options
       @arguments = arguments
       @ssh_username = @options[:global][:options][:ssh_username]
-      @swap_user = @options[:global][:options][:swap_user]
-      @authenticator = Authenticator.new(false, @ssh_username)
-
-      # if non-root, use sudo
-      if @ssh_username == "root"
-        @user_start = ''
-        @user_end = ''
-      else
-        if @swap_user == 'sudo'
-          @user_start = 'sudo'
-          @user_end = ''
-        elsif @swap_user == 'su'
-          # solaris/aix require the -u argument, also compatible with linux
-          @user_start = 'su root -c \''
-          @user_end = '\''
-        else
-          raise Escort::UserError.new("Unsupported swap user method: #{@swap_user}")
-        end
-
-        if ENV.has_key? 'PUPPETIZER_USER_PASSWORD'
-          @user_password = ENV['PUPPETIZER_USER_PASSWORD']
-        else
-          @user_password = false
-        end
-      end
+      @authenticator = Authenticator.new(
+        @options[:global][:options][:password_file], @ssh_username
+      )
 
       if File.exists?(INVENTORY_FILE)
         @myini = IniStyle.new('inventory/hosts')
@@ -116,8 +92,8 @@ module Puppetizer
 
     def setup_csr_attributes(ssh_params, csr_attributes, data)
       challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
-      user_start = @user_start
-      user_end   = @user_end
+      user_start, user_end = ssh_params.get_swap_user()
+
       if csr_attributes or challenge_password
         Escort::Logger.output.puts "Setting up CSR attributes on #{ssh_params.get_hostname()}"
         f = Tempfile.new("puppetizer")
@@ -149,12 +125,8 @@ module Puppetizer
           "eg pm=xxx.megacorp.com or on the commandline with --puppetmaster")
       end
 
-      user_start = @user_start
-      user_end = @user_end
-
-      ssh_params = SshParams.new(
-        hostname, @authenticator, @swap_user
-      )
+      ssh_params = SshParams.new(hostname, @authenticator)
+      user_start, user_end = ssh_params.get_swap_user()
 
 
   #    challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
@@ -162,7 +134,7 @@ module Puppetizer
       setup_csr_attributes(ssh_params, csr_attributes, data)
 
       if @options[:global][:commands][:agents][:options][:alt_installer]
-        AltInstaller::install_puppet(ssh_params, puppetmaster, data, user_start, user_end)
+        AltInstaller::install_puppet(ssh_params, puppetmaster, data)
       else
         Transport::ssh(ssh_params, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
       end
@@ -180,11 +152,8 @@ module Puppetizer
 
 
     def upload_agent_installers(hostname)
-      user_start = @user_start
-      user_end = @user_end
-      ssh_params = SshParams.new(
-        hostname, @authenticator, @swap_user
-      )
+      ssh_params = SshParams.new(hostname, @authenticator)
+      user_start, user_end = ssh_params.get_swap_user()
       if Dir.exists?(AGENT_LOCAL_PATH)
         # make sure the final location exists on puppet master
         Transport::ssh(ssh_params, "#{user_start} mkdir -p #{AGENT_UPLOAD_PATH_NORMAL} #{AGENT_UPLOAD_PATH_WINDOWS_X86} #{AGENT_UPLOAD_PATH_WINDOWS_X64} #{user_end}")
@@ -209,11 +178,9 @@ module Puppetizer
     end
 
     def upload_offline_gems(hostname)
-      user_start = @user_start
-      user_end = @user_end
-      ssh_params = SshParams.new(
-        hostname, @authenticator, @swap_user
-      )
+      ssh_params = SshParams.new(hostname, @authenticator)
+      user_start, user_end = ssh_params.get_swap_user()
+
       gem_cache_dir = '/tmp/gems/'
       install_needed = false
       local_cache = GEM_LOCAL_PATH + File::SEPARATOR + 'cache'
@@ -234,8 +201,8 @@ module Puppetizer
     end
 
     def run_puppet(ssh_params, message="Running puppet...")
-      user_start = @user_start
-      user_end = @user_end
+      user_start, user_end = ssh_params.get_swap_user()
+
       Escort::Logger.output.puts message
       Log::action_log("# --- begin run command on #{ssh_params.get_hostname()} ---")
       Transport::ssh(ssh_params, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
@@ -249,9 +216,8 @@ module Puppetizer
       Log::action_log('# ' + message)
 
       # ssh params for the host we are currently processing
-      ssh_params = SshParams.new(
-        hostname, @authenticator, @swap_user
-      )
+      ssh_params = SshParams.new(hostname, @authenticator)
+      user_start, user_end = ssh_params.get_swap_user()
 
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
@@ -262,9 +228,7 @@ module Puppetizer
         if data.has_key?('mom') and ! data['mom'].empty?
           mom = data['mom']
           # ssh params for the MoM we need (must already be up)
-          ssh_params_mom = SshParams.new(
-            mom, @authenticator, @swap_user
-          )
+          ssh_params_mom = SshParams.new(mom, @authenticator)
         else
           raise PuppetizerError, "You must specify a mom when installing compile masters.  Please set mom=PUPPETMASTER_FQDN"
         end
@@ -474,9 +438,9 @@ module Puppetizer
     end
 
     def print_status(hostname)
-      ssh_params = SshParams.new(
-        hostname, @authenticator, @swap_user
-      )
+      ssh_params = SshParams.new(hostname, @authenticator)
+      user_start, user_end = ssh_params.get_swap_user()
+
       begin
         print "host #{hostname} status: "
         Transport::ssh(ssh_params,
@@ -506,8 +470,8 @@ module Puppetizer
 
     def setup_code_manager(ssh_params)
       Escort::Logger.output.puts "Setting up Code Manager on #{ssh_params.get_hostname()}"
-      user_start = @user_start
-      user_end = @user_end
+      user_start, user_end = ssh_params.get_swap_user()
+
       Transport::ssh(ssh_params,
         ERB.new(Util::resource_read(SETUP_CODE_MANAGER_TEMPLATE), nil, '-').result(binding))
     end
@@ -553,6 +517,4 @@ module Puppetizer
     end
 
   end
-
-
 end

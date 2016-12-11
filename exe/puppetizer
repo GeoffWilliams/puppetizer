@@ -31,15 +31,15 @@ Escort::App.create do |app|
       :type => :string,
       :default => 'root'
 
-      opts.opt :swap_user,
-        'Username to use when logging in over SSH',
-        :long => '--swap-user',
-        :type => :string,
-        :default => 'sudo'
-
       opts.opt(:only_hosts,
         'only install process these hosts (comma delimited)',
         :long     => '--only-hosts',
+        :type     => :string,
+      )
+
+      opts.opt(:password_file,
+        'Read CSV file of usernames and passwords, VERY INSECURE - please use SSH keys instead',
+        :long     => '--password-file',
         :type     => :string,
       )
 #

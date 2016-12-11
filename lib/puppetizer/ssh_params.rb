@@ -1,10 +1,9 @@
 module Puppetizer
   class SshParams
 
-    def initialize(hostname, authenticator, swap_user)
+    def initialize(hostname, authenticator)
       @hostname       = hostname
       @authenticator  = authenticator
-      @swap_user      = swap_user
 
       auth_methods = [
         "none",
@@ -44,11 +43,11 @@ module Puppetizer
     end
 
     def get_pty_required
-      !! @swap_user
+      @authenticator.pty_required(@hostname)
     end
 
     def get_swap_user
-      @swap_user
+      @authenticator.swap_user(@hostname)
     end
 
     def get_ssh_opts

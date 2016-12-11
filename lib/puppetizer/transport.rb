@@ -14,13 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 require 'net/ssh/simple'
-require 'puppetizer/log'
 require 'puppetizer/puppetizer_error'
+require 'puppetizer/log'
 require 'puppetizer/busy_spinner'
 require 'puppetizer/authenticator'
 
 module Puppetizer::Transport
   Log = ::Puppetizer::Log
+  PuppetizerError = ::Puppetizer::PuppetizerError
 
   def self.upload_needed(ssh_params, local_file, remote_file)
     local_md5=%x{md5sum #{local_file}}.strip.split(/\s+/)[0]
@@ -152,7 +153,7 @@ module Puppetizer::Transport
     # reading code never catches it, lets capture it here...
     # based on: http://stackoverflow.com/a/4235463
     if d =~ /^\[sudo\] password for #{ssh_params.get_username()}:/ or d =~ /Password:/
-      if ssh_params.get_swap_user() == 'sudo'
+      if ssh_params.get_swap_user()[2] == :sudo
         if ssh_params.get_user_password()
           # send password
           channel.send_data ssh_params.get_user_password()
@@ -160,16 +161,22 @@ module Puppetizer::Transport
           # don't forget to press enter :)
           channel.send_data "\n"
         else
-          raise PuppetizerError, "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
+          raise PuppetizerError,
+            "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
         end
-      elsif ssh_params.get_swap_user() == 'su'
+      elsif ssh_params.get_swap_user()[2] == :su
         if ssh_params.get_root_password()
           # send password
           channel.send_data ssh_params.get_root_password()
           channel.send_data "\n"
         else
-          raise PuppetizerError, "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
+          raise PuppetizerError,
+            "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
         end
+      else
+        raise PuppetizerError,
+          "System at #{ssh_params.get_hostname()} requesting password but we "\
+          "don't have one configured"
       end
     end
 
