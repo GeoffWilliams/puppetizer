@@ -430,10 +430,11 @@ module Puppetizer
           end
         end
       end
+
       if @only_hosts and (! @only_hosts.empty?)
-        Escort::Logger.error.error
+        Escort::Logger.error.error(
           "The following hosts were requested for installation but have no "\
-          "corresponding entry in the inventory file: #{@only_hosts}"
+          "corresponding entry in the inventory file: #{@only_hosts}")
       end
     end
 
