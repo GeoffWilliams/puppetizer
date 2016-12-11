@@ -82,7 +82,9 @@ module Puppetizer::AltInstaller
     target
   end
 
-  def self.ensure_puppet_conf(ssh_params, puppetmaster, certname, user_start, user_end)
+  def self.ensure_puppet_conf(ssh_params, puppetmaster, certname)
+    user_start, user_end = ssh_params.get_swap_user()
+
     Escort::Logger.output.puts "Setting up puppet.conf file on #{ssh_params.get_hostname()}"
     f = Tempfile.new("puppetizer")
     begin
@@ -100,7 +102,8 @@ module Puppetizer::AltInstaller
 
   # manually install puppet over SCP without using curl, bash or wget for
   # systems that dont have these tools - eg aix and solaris
-  def self.install_puppet(ssh_params, puppetmaster, data, user_start, user_end)
+  def self.install_puppet(ssh_params, puppetmaster, data)
+    user_start, user_end = ssh_params.get_swap_user()
 
     # FIXME extract certname from data
     certname = ssh_params.get_hostname()
@@ -114,7 +117,7 @@ module Puppetizer::AltInstaller
     Transport::scp(ssh_params, package_file, agent_installer_file)
 
     # puppet.conf
-    ensure_puppet_conf(ssh_params, puppetmaster, certname, user_start, user_end)
+    ensure_puppet_conf(ssh_params, puppetmaster, certname)
 
     # install packages
     case platform_tag
