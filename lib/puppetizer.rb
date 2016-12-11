@@ -31,6 +31,8 @@ require 'puppetizer/transport'
 require 'puppetizer/util'
 require 'puppetizer/log'
 require 'puppetizer/puppetizer_error'
+require 'puppetizer/authenticator'
+require 'puppetizer/ssh_params'
 
 module Puppetizer
   INSTALL_PUPPET_TEMPLATE     = './templates/install_puppet.sh.erb'
@@ -43,11 +45,12 @@ module Puppetizer
   OFFLINE_GEM_TEMPLATE        = './templates/offline_gem.sh.erb'
   SIGN_CM_CERT_TEMPLATE       = './templates/sign_cm_cert.sh.erb'
   LB_EXTERNAL_FACT_TEMPLATE   = './templates/lb_external_fact.sh.erb'
+  MV_CSR_ATTRIBUTES_TEMPLATE  = './templates/mv_csr_attributes.sh.erb'
 
   CLASSIFY_CM_SCRIPT          = './scripts/classify_cm.rb'
 
   PUPPET_PATH         = '/opt/puppetlabs/puppet/bin'
-  PUPPET_ETC          = '/etc/puppetlabs/'
+  PUPPET_ETC          = '/etc/puppetlabs'
   PUPPET_CONFDIR      = "#{PUPPET_ETC}/puppet"
   PUPPET_R10K_SSH     = "#{PUPPET_ETC}/puppetserver/ssh"
   PUPPET_R10K_KEY     = "#{PUPPET_R10K_SSH}/id-control_repo.rsa"
@@ -70,35 +73,27 @@ module Puppetizer
       @arguments = arguments
       @ssh_username = @options[:global][:options][:ssh_username]
       @swap_user = @options[:global][:options][:swap_user]
-      if ENV.has_key? 'PUPPETIZER_USER_PASSWORD'
-        @user_password = ENV['PUPPETIZER_USER_PASSWORD']
-      else
-        @user_password = false
-      end
-      if ENV.has_key? 'PUPPETIZER_ROOT_PASSWORD'
-        @root_password = ENV['PUPPETIZER_ROOT_PASSWORD']
-      else
-        @root_password = false
-      end
+      @authenticator = Authenticator.new(false, @ssh_username)
 
-      auth_methods = [
-        "none",
-        "publickey"
-      ]
-      if @user_password
-        auth_methods.push("password")
-      end
 
-      ssh_opts = {
-        :user               => @ssh_username,
-        :auth_methods       => auth_methods,
-        :operation_timeout  => 0,
-        :timeout            => 60*60, # nothing we do should take more then an hour, period
-      }
-
-      if @user_password
-        ssh_opts[:password] = @user_password
-      end
+      # auth_methods = [
+      #   "none",
+      #   "publickey"
+      # ]
+      # if @user_password
+      #   auth_methods.push("password")
+      # end
+      #
+      # ssh_opts = {
+      #   :user               => @ssh_username,
+      #   :auth_methods       => auth_methods,
+      #   :operation_timeout  => 0,
+      #   :timeout            => 60*60, # nothing we do should take more then an hour, period
+      # }
+      #
+      # if @user_password
+      #   ssh_opts[:password] = @user_password
+      # end
 
       # if non-root, use sudo
       if @ssh_username == "root"
@@ -110,7 +105,7 @@ module Puppetizer
           @user_end = ''
         elsif @swap_user == 'su'
           # solaris/aix require the -u argument, also compatible with linux
-          @user_start = 'su -u root -c \''
+          @user_start = 'su root -c \''
           @user_end = '\''
         else
           raise Escort::UserError.new("Unsupported swap user method: #{@swap_user}")
@@ -136,27 +131,22 @@ module Puppetizer
       else
         @only_hosts = @options[:global][:options][:only_hosts].downcase.split(',')
       end
-
-      Transport::init(ssh_opts, @user_start)
-
     end
 
-    def setup_csr_attributes(host, csr_attributes, data)
+    def setup_csr_attributes(ssh_params, csr_attributes, data)
       challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
       user_start = @user_start
       user_end   = @user_end
-
       if csr_attributes or challenge_password
-        Escort::Logger.output.puts "Setting up CSR attributes on #{host}"
+        Escort::Logger.output.puts "Setting up CSR attributes on #{ssh_params.get_hostname()}"
         f = Tempfile.new("puppetizer")
         begin
           f << ERB.new(Util::resource_read(CSR_ATTRIBUTES_TEMPLATE), nil, '-').result(binding)
           f.close
           csr_tmp = "/tmp/csr_attributes.yaml"
-          Transport::scp(host, f.path, csr_tmp)
-          Transport::ssh(host,
-            "#{user_start} mkdir -p #{PUPPET_CONFDIR} #{user_end} && "\
-            "#{user_start} mv #{csr_tmp} #{PUPPET_CONFDIR}/csr_attributes.yaml #{user_end}")
+          Transport::scp(ssh_params, f.path, csr_tmp)
+          Transport::ssh(ssh_params,
+            ERB.new(Util::resource_read(MV_CSR_ATTRIBUTES_TEMPLATE), nil, '-').result(binding))
         ensure
           f.close
           f.unlink
@@ -164,8 +154,8 @@ module Puppetizer
       end
     end
 
-    def install_puppet(host, csr_attributes = false, data={})
-      message = "Installing puppet agent on #{host}"
+    def install_puppet(hostname, csr_attributes = false, data={})
+      message = "Installing puppet agent on #{hostname}"
       Escort::Logger.output.puts message
       Log::action_log('# ' + message)
       if @options[:global][:commands][:agents][:options][:puppetmaster]
@@ -174,20 +164,26 @@ module Puppetizer
         puppetmaster = data['pm']
       else
         raise Escort::UserError.new(
-          "must specify puppetmaster address for #{host} in inventory file, "\
+          "must specify puppetmaster address for #{hostname} in inventory file, "\
           "eg pm=xxx.megacorp.com or on the commandline with --puppetmaster")
       end
 
       user_start = @user_start
       user_end = @user_end
+
+      ssh_params = SshParams.new(
+        hostname, @authenticator, @swap_user
+      )
+
+
   #    challenge_password = @options[:global][:commands][command_name][:options][:challenge_password]
   #    csr_attributes |= challenge_password
-      setup_csr_attributes(host, csr_attributes, data)
+      setup_csr_attributes(ssh_params, csr_attributes, data)
 
       if @options[:global][:commands][:agents][:options][:alt_installer]
-        AltInstaller::install_puppet(host, puppetmaster, data, user_start, user_end)
+        AltInstaller::install_puppet(ssh_params, puppetmaster, data, user_start, user_end)
       else
-        Transport::ssh(host, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(hostname, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
       end
     end
 

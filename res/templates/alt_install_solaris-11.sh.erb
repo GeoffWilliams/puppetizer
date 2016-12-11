@@ -1,0 +1,29 @@
+# convert p5p file to local repository.  Sourced from solaris-11-i386.bash on
+# an installed puppet master.  See also notes at
+# https://groups.google.com/forum/#!topic/pkg-discuss/AOha9jR6eEI
+export ips_repo_dir="/etc/puppetlabs/installer/solaris.repo"
+export ips_repo="file://${ips_repo_dir?}"
+
+if [ -f "${ips_repo_dir?}/pkg5.repository" ] ; then
+  # The repo exists, so we remove its packages
+  <%= user_start %> pkgrepo remove -s "${ips_repo}" '*' || :<%= user_end %>
+else
+  <%= user_start %> mkdir -p "${ips_repo_dir?}" <%= user_end %>
+  <%= user_start %> pkgrepo create ${ips_repo?} <%= user_end %>
+fi
+
+<%= user_start %> pkgrepo set -s ${ips_repo?} publisher/prefix=puppetlabs.com <%= user_end %>
+
+<%= user_start %> pkgrecv -s "<%= agent_installer_file %>" -d ${ips_repo?} '*' > /dev/null <%= user_end %>
+
+# If the puppetlabs.com publisher exists, it may have been put in place
+# by a global zone install after an install in this non-global zone.  As
+# such we replace its uri(s) with (or at the very least add) ours.
+if pkg publisher puppetlabs.com >&/dev/null; then
+  <%= user_start %> pkg set-publisher -G '*' -g "${ips_repo?}" puppetlabs.com <%= user_end %>
+else
+  <%= user_start %> pkg set-publisher -p "${ips_repo?}" puppetlabs.com <%= user_end %>
+fi
+
+# simplify $(sed 's/^\([a-z0-9-]*\)@.*$/\1@latest/' "${staging_dir?}/packages.txt")
+<%= user_start %> pkg install puppet-agent@latest > /dev/null <%= user_end %>

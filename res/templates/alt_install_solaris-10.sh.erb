@@ -1,0 +1,3 @@
+# strange piping copied from puppet bash install script - not sure why needed...
+<%= user_start %> sh -c 'gzip -dc "<%= agent_installer_file %>" \
+  | pkgadd -G -a "<%= SOLARIS_NOASK_TARGET %>" -n -d /dev/stdin all' <%= user_end %>

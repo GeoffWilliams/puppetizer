@@ -1,0 +1,4 @@
+<%= user_start %> /opt/puppetlabs/puppet/bin/puppet resource service puppet ensure=stopped <%= user_end %>
+<%= user_start %> /opt/puppetlabs/puppet/bin/puppet resource service puppet ensure=running enable=true <%= user_end %>
+<%= user_start %> /opt/puppetlabs/puppet/bin/puppet resource service mcollective ensure=stopped <%= user_end %>
+<%= user_start %> /opt/puppetlabs/puppet/bin/puppet resource service mcollective ensure=running enable=true <%= user_end %>

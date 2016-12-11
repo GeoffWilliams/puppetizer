@@ -17,24 +17,14 @@ require 'net/ssh/simple'
 require 'puppetizer/log'
 require 'puppetizer/puppetizer_error'
 require 'puppetizer/busy_spinner'
+require 'puppetizer/authenticator'
 
 module Puppetizer::Transport
   Log = ::Puppetizer::Log
 
-  # Overall module per-run settings
-  def self.init(ssh_opts, user_start)
-
-    # hash of options for ssh
-    @ssh_opts = ssh_opts
-
-    # used to detect if we need to allocated a PTY or not (for non-root)
-    @user_start = user_start
-  end
-
-
-  def self.upload_needed(host, local_file, remote_file)
+  def self.upload_needed(ssh_params, local_file, remote_file)
     local_md5=%x{md5sum #{local_file}}.strip.split(/\s+/)[0]
-    remote_md5=ssh(host, "md5sum #{remote_file} 2>&1", true).stdout.strip.split(/\s+/)[0]
+    remote_md5=ssh(ssh_params, "md5sum #{remote_file} 2>&1", true).stdout.strip.split(/\s+/)[0]
 
     needed = local_md5 != remote_md5
     if ! needed
@@ -60,15 +50,16 @@ module Puppetizer::Transport
     return false
   end
 
-  def self.scp(host, local_file, remote_file, job_name='Upload data')
-    if port_open?(host,22)
-      if upload_needed(host, local_file, remote_file)
+  def self.scp(ssh_params, local_file, remote_file, job_name='Upload data')
+    host = ssh_params.get_hostname()
+    if port_open?(host, 22)
+      if upload_needed(ssh_params, local_file, remote_file)
         Log::action_log("scp #{local_file} to #{host}:#{remote_file}")
         busy_spinner = BusySpinner.new
         begin
           # local variables are visible in instance-eval but instance ones are not...
           # see http://stackoverflow.com/questions/3071532/how-does-instance-eval-work-and-why-does-dhh-hate-it
-          ssh_opts = @ssh_opts
+          ssh_opts = ssh_params.get_ssh_opts()
           progressbar = ProgressBar.create(:title => job_name)
           Net::SSH::Simple.sync do
             scp_put(host, local_file, remote_file, ssh_opts) do |sent, total|
@@ -107,20 +98,20 @@ module Puppetizer::Transport
     end
   end
 
-  def self.ssh(host, cmd, no_print=false, no_capture=false)
+  def self.ssh(ssh_params, cmd, no_print=false, no_capture=false)
     Log::action_log(cmd)
-    user_start = @user_start
-    request_pty = ! @user_start.empty?
+    host = ssh_params.get_hostname()
+    request_pty = ssh_params.get_pty_required()
     if port_open?(host,22)
       begin
-        ssh_opts = @ssh_opts
+        ssh_opts = ssh_params.get_ssh_opts()
         r = Net::SSH::Simple.sync do
           ssh(host, cmd, ssh_opts, request_pty) do |e,c,d|
             case e
               when :start
                 #puts "CONNECTED"
               when :stdout, :stderr
-                defrag_line(d,c,no_print)
+                defrag_line(d,c,no_print, ssh_params)
                 if no_capture
                   :no_append
                 end
@@ -156,25 +147,25 @@ module Puppetizer::Transport
     end
   end
 
-  def self.defrag_line(d, channel, no_print)
+  def self.defrag_line(d, channel, no_print, ssh_params)
     # The sudo prompt doesn't have a newline at the end so the main stream
     # reading code never catches it, lets capture it here...
     # based on: http://stackoverflow.com/a/4235463
-    if d =~ /^\[sudo\] password for #{@ssh_username}:/ or d =~ /Password:/
-      if @swap_user == 'sudo'
-        if @user_password
+    if d =~ /^\[sudo\] password for #{ssh_params.get_username()}:/ or d =~ /Password:/
+      if ssh_params.get_swap_user() == 'sudo'
+        if ssh_params.get_user_password()
           # send password
-          channel.send_data @user_password
+          channel.send_data ssh_params.get_user_password()
 
           # don't forget to press enter :)
           channel.send_data "\n"
         else
           raise PuppetizerError, "We need a sudo password.  Please export PUPPETIZER_USER_PASSWORD=xxx"
         end
-      elsif @swap_user == 'su'
-        if @root_password
+      elsif ssh_params.get_swap_user() == 'su'
+        if ssh_params.get_root_password()
           # send password
-          channel.send_data @root_password
+          channel.send_data ssh_params.get_root_password()
           channel.send_data "\n"
         else
           raise PuppetizerError, "We need an su password.  Please export PUPPETIZER_ROOT_PASSWORD=xxx"
