@@ -280,8 +280,6 @@ module Puppetizer
       else
         dns_alt_names = false
       end
-      user_start = @user_start
-      user_end = @user_end
 
       setup_csr_attributes(ssh_params, csr_attributes, data)
 
