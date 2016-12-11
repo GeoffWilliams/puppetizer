@@ -129,6 +129,8 @@ If you don't yet have key based authentication in place, then its easiest to gen
 Alternatively, read on for details of how password based authentication works.
 
 ### Password based authentication
+
+#### Environment variables
 To stop passwords appearing in the process table, they are passed by exporting the variable `PUPPETIZER_USER_PASSWORD`, e.g.:
 
 ```shell
@@ -137,7 +139,7 @@ export PUPPETIZER_USER_PASSWORD=t0ps3cret
 
 NOTES
 -----
-* `PUPPETIZER_USER_PASSWORD` will be sent to all machines puppetizer tries to connect to.  This is to avoid building huge lists of passwords for your important machines.  Your strongly encouraged to setup SSH public key based authentication(!)
+* `PUPPETIZER_USER_PASSWORD` will be sent to *all* machines puppetizer tries to connect to.  This is to avoid building huge lists of passwords for your important machines.  Your strongly encouraged to setup SSH public key based authentication(!)
 * By default, puppetizer will try to connect as user `root`, choose a different user with the `--ssh-username` argument
 * You may encounter the following error if you have SSH keys loaded in the SSH agent:
 
@@ -151,12 +153,45 @@ NOTES
   ssh-add -D
   ```
 
+#### Password file
+The *last* resort in terms of passing passwords to SSH is to use a plaintext password file according to the following format:
+
+```csv
+hostname,username,password_user,password_root
+puppet.demo.internal,geoff,abcd1234,abcd12341
+lamp-b.demo.internal,geoff,abcd123,abcd1231
+java-b.demo.internal,geoff,aladin123
+```
+
+Fields
+------
+* `hostname` - the hostname these details apply to
+* `username` - the initial user to login as
+* `password_user` - the password for the initial user, used with sudo if required
+* `password_root` - the password for root, riggers switch to su
+
+To activate the password file, pass the `--password-file FILENAME` argument, eg:
+
+```shell
+bundle exec puppetizer  --password-file passwords.txt puppetmasters
+```
+
+WARNING
+-------
+* Obviously building a list of hostnames, usernames and passwords is a *terrible* idea
+* You really should use SSH keys for authentication
+* ...But sometimes there is no choice.  Be sure to either:
+  * Cycle passwords ASAP after deployment
+  * Use puppet to change passwords after deployment
+
 ## Root access
 Puppetizer needs to be able to gain access to the `root` account, the supported techniques are:
 * Direct login as `root`
 * Access `root` via sudo with no password
 * Access `root` via sudo with the user's password
 * Access `root` via su with `root`'s password
+
+Important:  Puppetizer uses the presence of the password for `root` to see whether it needs to use `su` or `sudo`
 
 ### sudo
 Login to machines as user `fred` and become root using `sudo` and `fred`'s password: `freddy123`.
@@ -174,8 +209,9 @@ Login to machines as user `fred` and become `root` using `su` with password `top
 ```shell
 export PUPPETIZER_USER_PASSWORD=freddy123 # password for the user (for SSH)
 export PUPPETIZER_ROOT_PASSWORD=topsecr3t # password for root (asked by su)
-puppetizer --swap-user su --ssh-username fred
+puppetizer --ssh-username fred
 ```
+
 
 # Usage
 After following the above instructions, your able to use puppetizer to quickly install Puppet Enterprise masters and agents:
