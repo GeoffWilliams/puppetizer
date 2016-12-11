@@ -164,7 +164,7 @@ module Puppetizer
       if @options[:global][:commands][:agents][:options][:alt_installer]
         AltInstaller::install_puppet(ssh_params, puppetmaster, data, user_start, user_end)
       else
-        Transport::ssh(hostname, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(ssh_params, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
       end
     end
 
@@ -179,16 +179,19 @@ module Puppetizer
 
 
 
-    def upload_agent_installers(host)
+    def upload_agent_installers(hostname)
       user_start = @user_start
       user_end = @user_end
+      ssh_params = SshParams.new(
+        hostname, @authenticator, @swap_user
+      )
       if Dir.exists?(AGENT_LOCAL_PATH)
         # make sure the final location exists on puppet master
-        Transport::ssh(host, "#{user_start} mkdir -p #{AGENT_UPLOAD_PATH_NORMAL} #{AGENT_UPLOAD_PATH_WINDOWS_X86} #{AGENT_UPLOAD_PATH_WINDOWS_X64} #{user_end}")
+        Transport::ssh(ssh_params, "#{user_start} mkdir -p #{AGENT_UPLOAD_PATH_NORMAL} #{AGENT_UPLOAD_PATH_WINDOWS_X86} #{AGENT_UPLOAD_PATH_WINDOWS_X64} #{user_end}")
         Dir.foreach(AGENT_LOCAL_PATH) { |f|
           if f != '.' and f != '..'
             filename = AGENT_LOCAL_PATH + File::SEPARATOR + f
-            Transport::scp(host, filename, "/tmp/#{f}", "Uploading #{f}")
+            Transport::scp(ssh_params, filename, "/tmp/#{f}", "Uploading #{f}")
 
             if f =~ /.msi/
               if f =~ /x86/
@@ -199,38 +202,56 @@ module Puppetizer
             else
               final_destination = AGENT_UPLOAD_PATH_NORMAL
             end
-            Transport::ssh(host, "#{user_start} cp /tmp/#{f} #{final_destination} #{user_end}")
+            Transport::ssh(ssh_params, "#{user_start} cp /tmp/#{f} #{final_destination} #{user_end}")
           end
         }
       end
     end
 
-    def upload_offline_gems(host)
+    def upload_offline_gems(hostname)
       user_start = @user_start
       user_end = @user_end
+      ssh_params = SshParams.new(
+        hostname, @authenticator, @swap_user
+      )
       gem_cache_dir = '/tmp/gems/'
       install_needed = false
       local_cache = GEM_LOCAL_PATH + File::SEPARATOR + 'cache'
       if Dir.exists?(local_cache)
-        Transport::ssh(host, "mkdir -p #{gem_cache_dir}")
+        Transport::ssh(ssh_params, "mkdir -p #{gem_cache_dir}")
         Dir.foreach(local_cache) { |f|
           if f != '.' and f != '..'
             filename = local_cache + File::SEPARATOR + f
-            Transport::scp(host, filename, gem_cache_dir + f, "Uploading " + f)
+            Transport::scp(ssh_params, filename, gem_cache_dir + f, "Uploading " + f)
             install_needed = true
           end
         }
 
         if install_needed
-          Transport::ssh(host, ERB.new(Util::resource_read(OFFLINE_GEM_TEMPLATE), nil, '-').result(binding))
+          Transport::ssh(ssh_params, ERB.new(Util::resource_read(OFFLINE_GEM_TEMPLATE), nil, '-').result(binding))
         end
       end
     end
 
-    def install_pe(host, csr_attributes, data)
-      message = "Installing Puppet Enterprise on #{host}"
+    def run_puppet(ssh_params, message="Running puppet...")
+      user_start = @user_start
+      user_end = @user_end
+      Escort::Logger.output.puts message
+      Log::action_log("# --- begin run command on #{ssh_params.get_hostname()} ---")
+      Transport::ssh(ssh_params, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
+      Log::action_log("# --- end run command on #{ssh_params.get_hostname()} ---")
+      Escort::Logger.output.puts "...done!"
+    end
+
+    def install_pe(hostname, csr_attributes, data)
+      message = "Installing Puppet Enterprise on #{hostname}"
       Escort::Logger.output.puts message
       Log::action_log('# ' + message)
+
+      # ssh params for the host we are currently processing
+      ssh_params = SshParams.new(
+        hostname, @authenticator, @swap_user
+      )
 
       # variables in scope for ERB
       password = @options[:global][:commands][command_name][:options][:console_admin_password]
@@ -240,6 +261,10 @@ module Puppetizer
         compile_master = true
         if data.has_key?('mom') and ! data['mom'].empty?
           mom = data['mom']
+          # ssh params for the MoM we need (must already be up)
+          ssh_params_mom = SshParams.new(
+            mom, @authenticator, @swap_user
+          )
         else
           raise PuppetizerError, "You must specify a mom when installing compile masters.  Please set mom=PUPPETMASTER_FQDN"
         end
@@ -294,96 +319,92 @@ module Puppetizer
       user_start = @user_start
       user_end = @user_end
 
-      setup_csr_attributes(host, csr_attributes, data)
+      setup_csr_attributes(ssh_params, csr_attributes, data)
 
       # SCP up the agents if present
-      upload_agent_installers(host)
+      upload_agent_installers(hostname)
 
       # run the PE installer
       if compile_master
         # create an external fact with the address of the load balancer on the host
-        Transport::ssh(host, ERB.new(Util::resource_read(LB_EXTERNAL_FACT_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(ssh_params,
+          ERB.new(Util::resource_read(LB_EXTERNAL_FACT_TEMPLATE), nil, '-').result(binding))
 
         # install puppet agent as a CM
-        Transport::ssh(host, ERB.new(Util::resource_read(INSTALL_CM_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(ssh_params,
+          ERB.new(Util::resource_read(INSTALL_CM_TEMPLATE), nil, '-').result(binding))
 
         # sign the cert on the mom
         Escort::Logger.output.puts "Waiting 5 seconds for CSR to arrive on MOM"
         sleep(5)
         Log::action_log("# --- begin run command on #{mom} ---")
-        Transport::ssh(mom, ERB.new(Util::resource_read(SIGN_CM_CERT_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(ssh_params_mom,
+          ERB.new(Util::resource_read(SIGN_CM_CERT_TEMPLATE), nil, '-').result(binding))
         Log::action_log("# --- end run command on #{mom} ---")
 
-
         # copy the classification script to the MOM and run it
-        Escort::Logger.output.puts "Classifying #{host} as Compile Master"
+        Escort::Logger.output.puts "Classifying #{hostname} as Compile Master"
         script_path = "/tmp/#{File.basename(CLASSIFY_CM_SCRIPT)}"
 
         Log::action_log("# --- begin copy file to #{mom} ---")
-        Transport::scp(mom, resource_path(CLASSIFY_CM_SCRIPT), script_path)
+        Transport::scp(ssh_params_mom, Util::resource_path(CLASSIFY_CM_SCRIPT), script_path)
         Log::action_log("# --- end copy file to #{mom} ---")
 
         # pin the CM to the PE Masters group and set a load balancer address for
         # pe_repo (if provided)
         Log::action_log("# --- begin run command on #{mom} ---")
-        Transport::ssh(mom, "chmod +x #{script_path}")
-        Transport::ssh(mom, "#{user_start} #{script_path} #{host} #{lb_fact} #{user_end}")
+        Transport::ssh(ssh_params_mom, "chmod +x #{script_path}")
+        Transport::ssh(ssh_params_mom, "#{user_start} #{script_path} #{hostname} #{lb_fact} #{user_end}")
         Log::action_log("# --- end run command on #{mom} ---")
 
         # Run puppet in the correct order
-        Escort::Logger.output.puts "Running puppet on compile master: #{host}"
-        Transport::ssh(host, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
-
-        Escort::Logger.output.puts "Running puppet on MOM: #{mom}"
-        Log::action_log("# --- begin run command on #{mom} ---")
-        Transport::ssh(mom, "#{user_start} /opt/puppetlabs/bin/puppet agent -t #{user_end}")
-        Log::action_log("# --- end run command on #{mom} ---")
+        run_puppet(ssh_params, "Running puppet on compile master: #{hostname}")
+        run_puppet(ssh_params_mom, "Running puppet on MOM: #{mom}")
       else
         # full PE installation
 
-        puppet_r10k_key = PUPPET_R10K_KEY
-
         # SCP the installer
         tarball = find_pe_tarball
-        Transport::scp(host, tarball, "/tmp/#{tarball}", "Upload PE Media")
+        Transport::scp(ssh_params, tarball, "/tmp/#{tarball}", "Upload PE Media")
 
         # copy r10k private key if needed
         if r10k_private_key_path
 
           # upload to /tmp
           temp_keyfile = "/tmp/#{File.basename(PUPPET_R10K_KEY)}"
-          Transport::scp(host, r10k_private_key_path, temp_keyfile)
+          Transport::scp(ssh_params, r10k_private_key_path, temp_keyfile)
 
           # make directory and move temp keyfile there
-          Transport::ssh(host, "#{user_start} mkdir -p #{PUPPET_R10K_SSH} #{user_end}")
-          Transport::ssh(host, "#{user_start} mv #{temp_keyfile} #{PUPPET_R10K_KEY} #{user_end}")
+          Transport::ssh(ssh_params, "#{user_start} mkdir -p #{PUPPET_R10K_SSH} #{user_end}")
+          Transport::ssh(ssh_params, "#{user_start} mv #{temp_keyfile} #{PUPPET_R10K_KEY} #{user_end}")
         end
 
         # run installation
-        Transport::ssh(host, ERB.new(Util::resource_read(INSTALL_PE_MASTER_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(ssh_params, ERB.new(Util::resource_read(INSTALL_PE_MASTER_TEMPLATE), nil, '-').result(binding))
 
         # fix permissions on key
         if r10k_private_key_path
-          Transport::ssh(host, "#{user_start} chown pe-puppet.pe-puppet #{PUPPET_R10K_KEY} #{user_end}")
-          Transport::ssh(host, "#{user_start} chmod 600 #{PUPPET_R10K_KEY} #{user_end}")
+          Transport::ssh(ssh_params, "#{user_start} chown pe-puppet.pe-puppet #{PUPPET_R10K_KEY} #{user_end}")
+          Transport::ssh(ssh_params, "#{user_start} chmod 600 #{PUPPET_R10K_KEY} #{user_end}")
         end
       end
 
       # Upload the offline gems if present - must be done AFTER puppet install
       # to obtain gem command
-      upload_offline_gems(host)
+      upload_offline_gems(hostname)
 
       # post-install (gems) after we have uploaded any offline gems
-      Transport::ssh(host, ERB.new(Util::resource_read(PE_POSTINSTALL_TEMPLATE), nil, '-').result(binding))
+      Transport::ssh(ssh_params,
+        ERB.new(Util::resource_read(PE_POSTINSTALL_TEMPLATE), nil, '-').result(binding))
 
       # run puppet to finalise configuration
-      Transport::ssh(host, "#{user_start} #{PUPPET_PATH}/puppet agent -t #{user_end} ")
+      run_puppet(ssh_params)
 
       if deploy_code and ! compile_master
-        setup_code_manager(host)
+        setup_code_manager(ssh_params)
       end
 
-      Escort::Logger.output.puts "Puppet Enterprise installation for #{host} completed"
+      Escort::Logger.output.puts "Puppet Enterprise installation for #{hostname} completed"
     end
 
 
@@ -445,7 +466,7 @@ module Puppetizer
           end
         end
       end
-      if ! @only_hosts.empty?
+      if @only_hosts and (! @only_hosts.empty?)
         Escort::Logger.error.error
           "The following hosts were requested for installation but have no "\
           "corresponding entry in the inventory file: #{@only_hosts}"
@@ -453,9 +474,13 @@ module Puppetizer
     end
 
     def print_status(hostname)
+      ssh_params = SshParams.new(
+        hostname, @authenticator, @swap_user
+      )
       begin
         print "host #{hostname} status: "
-        Transport::ssh(hostname, ERB.new(Util::resource_read(PUPPET_STATUS_TEMPLATE), nil, '-').result(binding))
+        Transport::ssh(ssh_params,
+          ERB.new(Util::resource_read(PUPPET_STATUS_TEMPLATE), nil, '-').result(binding))
       rescue PuppetizerError => e
         Escort::Logger.error.error e.message
       end
@@ -479,12 +504,12 @@ module Puppetizer
       end
     end
 
-    def setup_code_manager(host)
-      Escort::Logger.output.puts "Setting up Code Manager on #{host}"
+    def setup_code_manager(ssh_params)
+      Escort::Logger.output.puts "Setting up Code Manager on #{ssh_params.get_hostname()}"
       user_start = @user_start
       user_end = @user_end
-
-      Transport::ssh(host, ERB.new(Util::resource_read(SETUP_CODE_MANAGER_TEMPLATE), nil, '-').result(binding))
+      Transport::ssh(ssh_params,
+        ERB.new(Util::resource_read(SETUP_CODE_MANAGER_TEMPLATE), nil, '-').result(binding))
     end
 
     def action_upload_agent_installers()

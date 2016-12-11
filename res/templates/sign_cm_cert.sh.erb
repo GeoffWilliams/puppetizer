@@ -1,2 +1,2 @@
 # sign cert if needed - single line to play nice with su and sudo
-<%= user_start %>puppet cert list <%= host %> ; if [ $? -eq 0 ] ; then   puppet cert --allow-dns-alt-names sign <%= host %>; fi <%= user_end %>
+<%= user_start %>puppet cert list <%= hostname %> ; if [ $? -eq 0 ] ; then   puppet cert --allow-dns-alt-names sign <%= hostname %>; fi <%= user_end %>
