@@ -45,6 +45,13 @@ Escort::App.create do |app|
         :long     => '--password-file',
         :type     => :string,
       )
+
+      opts.opt(:reinstall,
+        'Force reinstallation of puppet master/agent',
+        :long     => '--reinstall',
+        :type     => :boolean,
+        :default  => false,
+      )
 #
 #    opts.opt :console_admin_password,
 #      'Initial console admin password',

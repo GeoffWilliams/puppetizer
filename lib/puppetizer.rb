@@ -35,6 +35,7 @@ require 'puppetizer/puppetizer_error'
 require 'puppetizer/authenticator'
 require 'puppetizer/ssh_params'
 require 'puppetizer/inventory_parser'
+require 'puppetizer/install_state'
 
 module Puppetizer
   INSTALL_PUPPET_TEMPLATE     = './templates/install_puppet.sh.erb'
@@ -72,6 +73,7 @@ module Puppetizer
       @options = options
       @arguments = arguments
       @ssh_username = @options[:global][:options][:ssh_username]
+      @reinstall = @options[:global][:options][:reinstall]
       @authenticator = Authenticator.new(
         @options[:global][:options][:password_file], @ssh_username
       )
@@ -139,6 +141,8 @@ module Puppetizer
       else
         Transport::ssh(ssh_params, ERB.new(Util::resource_read(INSTALL_PUPPET_TEMPLATE), nil, '-').result(binding))
       end
+
+      InstallState::mark_installed(hostname)
     end
 
     def find_pe_tarball
@@ -367,6 +371,7 @@ module Puppetizer
         setup_code_manager(ssh_params)
       end
 
+      InstallState::mark_installed(hostname)
       Escort::Logger.output.puts "Puppet Enterprise installation for #{hostname} completed"
     end
 
@@ -398,8 +403,11 @@ module Puppetizer
     end
 
     def should_process_host(hostname)
+      hostname = hostname.downcase
+
+      # First see if we should only be processing specific hosts...
       if @only_hosts
-        if @only_hosts.include?(hostname.downcase)
+        if @only_hosts.include?(hostname)
           process = true
         else
           process = false
@@ -408,6 +416,25 @@ module Puppetizer
         process = true
       end
 
+      if process
+        # see if we have already installed this host
+        if InstallState::installed(hostname)
+          if @reinstall
+            Escort::Logger.output.puts(
+              "#{hostname} already installed, reinstalling as you requested")
+            process = true
+          else
+            Escort::Logger.output.puts("#{hostname} already installed, skipping")
+            process = false
+
+            # remove from @only_hosts to prevent us trying to do it as a special
+            # order...
+            if @only_hosts
+              @only_hosts.delete(hostname)
+            end
+          end
+        end
+      end
       process
     end
 

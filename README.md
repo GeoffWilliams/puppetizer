@@ -252,6 +252,11 @@ Hosts are installed in the order specified in the file.  If you are setting up c
 ##### Options
 * Any of the [pp_ options](https://docs.puppet.com/puppet/latest/reference/config_file_csr_attributes.html#puppet-specific-registered-ids), eg `pp_role=r_role::puppet::master`
 
+## Tracking installation progress
+Successful Master and Agent installations will create files under `./install_state` bearing the hostname of Successfully installed hosts.  To force reinstallation delete the corresponding file or pass `--reinstall` as a global option to puppetizer.
+
+The presence of these files allows puppetizer to quickly skip hosts that have already been installed.
+
 ## Developing
 After checking out the repo, run `bin/setup` to install dependencies. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
 
