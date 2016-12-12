@@ -1,5 +1,7 @@
 require 'csv'
+require 'puppetizer'
 require 'puppetizer/puppetizer_error'
+require 'puppetizer/authenticator'
 module Puppetizer
   class Authenticator
 

@@ -1,3 +1,5 @@
+require 'puppetizer'
+require 'puppetizer/authenticator'
 module Puppetizer
   class SshParams
 

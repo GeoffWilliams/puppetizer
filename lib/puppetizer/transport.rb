@@ -20,8 +20,8 @@ require 'puppetizer/busy_spinner'
 require 'puppetizer/authenticator'
 
 module Puppetizer::Transport
-  Log = ::Puppetizer::Log
-  PuppetizerError = ::Puppetizer::PuppetizerError
+  Log = Puppetizer::Log
+  PuppetizerError = Puppetizer::PuppetizerError
 
   def self.upload_needed(ssh_params, local_file, remote_file)
     local_md5=%x{md5sum #{local_file}}.strip.split(/\s+/)[0]

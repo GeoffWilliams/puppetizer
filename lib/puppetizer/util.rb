@@ -13,24 +13,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-module Puppetizer::Util
-  # Return the absolute filename of a named resource in this gem
-  def self.resource_path(resource)
-    File.join(
-      File.dirname(File.expand_path(__FILE__)), "../../res/#{resource}")
-  end
-
-  def self.resource_read(res)
-    # Override shipped templates with local ones if present
-    if File.exist?(res)
-      Escort::Logger.output.puts "Using local template #{res}"
-      res_file = res
-    else
-      res_file = File.join(
-        File.dirname(File.expand_path(__FILE__)), "../../res/#{res}")
+require 'puppetizer'
+require 'puppetizer/util'
+module Puppetizer
+  module Util
+    # Return the absolute filename of a named resource in this gem
+    def self.resource_path(resource)
+      File.join(
+        File.dirname(File.expand_path(__FILE__)), "../../res/#{resource}")
     end
-    File.open(res_file, 'r') { |file| file.read }
-  end
 
+    def self.resource_read(res)
+      # Override shipped templates with local ones if present
+      if File.exist?(res)
+        Escort::Logger.output.puts "Using local template #{res}"
+        res_file = res
+      else
+        res_file = File.join(
+          File.dirname(File.expand_path(__FILE__)), "../../res/#{res}")
+      end
+      File.open(res_file, 'r') { |file| file.read }
+    end
+  end
 end

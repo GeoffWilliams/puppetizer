@@ -1,3 +1,5 @@
+require 'puppetizer'
+
 module Puppetizer
   class InventoryParser
     @@csr_attributes=[
