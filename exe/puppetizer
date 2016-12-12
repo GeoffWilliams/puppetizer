@@ -17,6 +17,9 @@
 require 'puppetizer'
 require 'escort'
 
+# display help if nothing specified
+ARGV.push('-h') if ARGV.empty?
+
 Escort::App.create do |app|
   app.version "0.0.1"
   app.summary "puppetizer"
@@ -164,4 +167,8 @@ Escort::App.create do |app|
       Puppetizer::Puppetizer.new(options, arguments).status()
     end
   end
+
+  # Example of how to trigger a default action
+  # app.action do |options, arguments|
+  # end
 end
